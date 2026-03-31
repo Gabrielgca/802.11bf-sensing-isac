@@ -1141,6 +1141,9 @@ CtrlTriggerUserInfoField::GetSerializedSize() const
         size +=
             m_muBarTriggerDependentUserInfo.GetSerializedSize(); // BAR Control and BAR Information
         break;
+    case TriggerFrameType::SENSING_TRIGGER:
+        // No Trigger Dependent User Info subfield for SR2SI sounding
+        break;
     default:;
         // The Trigger Dependent User Info subfield is not present in the other variants
     }
@@ -1183,8 +1186,6 @@ CtrlTriggerUserInfoField::Serialize(Buffer::Iterator start) const
     }
 
     i.WriteHtolsbU32(userInfo);
-    // Here we need to write 8 bits covering the UL Target RSSI (7 bits) and B39, which is
-    // reserved in the HE variant and the PS160 subfield in the EHT variant.
     uint8_t bit32To39 = m_ulTargetRssi;
     if (m_variant == TriggerFrameVariant::EHT)
     {
@@ -1207,6 +1208,7 @@ CtrlTriggerUserInfoField::Serialize(Buffer::Iterator start) const
         m_muBarTriggerDependentUserInfo.Serialize(i);
         i.Next(m_muBarTriggerDependentUserInfo.GetSerializedSize());
     }
+    // SENSING_TRIGGER: no Trigger Dependent User Info subfield
 
     return i;
 }
@@ -1263,12 +1265,12 @@ CtrlTriggerUserInfoField::Deserialize(Buffer::Iterator start)
     {
         m_bfrpTriggerDependentUserInfo = i.ReadU8();
     }
-
     else if (m_triggerType == TriggerFrameType::MU_BAR_TRIGGER)
     {
         uint32_t len = m_muBarTriggerDependentUserInfo.Deserialize(i);
         i.Next(len);
     }
+    // SENSING_TRIGGER: no Trigger Dependent User Info subfield to read
 
     return i;
 }
@@ -1670,7 +1672,9 @@ CtrlTriggerHeader::CtrlTriggerHeader()
       m_giAndLtfType(0),
       m_apTxPower(0),
       m_ulSpatialReuse(0),
-      m_padding(0)
+      m_padding(0),
+      m_sensingField(false),
+      m_sensingSubtype(SensingTriggerSubtype::SR2SI_SOUNDING)
 {
 }
 
@@ -1738,6 +1742,8 @@ CtrlTriggerHeader::operator=(const CtrlTriggerHeader& trigger)
     m_apTxPower = trigger.m_apTxPower;
     m_ulSpatialReuse = trigger.m_ulSpatialReuse;
     m_padding = trigger.m_padding;
+    m_sensingField = trigger.m_sensingField;
+    m_sensingSubtype = trigger.m_sensingSubtype;
     m_userInfoFields.clear();
     m_userInfoFields = trigger.m_userInfoFields;
     return *this;
@@ -1796,6 +1802,12 @@ CtrlTriggerHeader::GetSerializedSize() const
     {
         size += 4;
     }
+    else if (m_triggerType == TriggerFrameType::SENSING_TRIGGER)
+    {
+        // 802.11bf Sensing Trigger Dependent Common Info:
+        // 1 bit  Sensing field + 4 bits Sensing Trigger Subtype + 3 bits reserved = 1 byte
+        size += 1;
+    }
 
     for (auto& ui : m_userInfoFields)
     {
@@ -1837,6 +1849,18 @@ CtrlTriggerHeader::Serialize(Buffer::Iterator start) const
 
     i.WriteHtolsbU64(commonInfo);
 
+    // 802.11bf Sensing Trigger Dependent Common Info (1 byte, only for SENSING_TRIGGER)
+    if (m_triggerType == TriggerFrameType::SENSING_TRIGGER)
+    {
+        // bit 0:   Sensing field (1 = Sensing Trigger variant)
+        // bits 1-4: Sensing Trigger Subtype (4 bits)
+        // bits 5-7: reserved (0)
+        uint8_t sensingCommonInfo = 0;
+        sensingCommonInfo |= (m_sensingField ? 0x01 : 0x00);
+        sensingCommonInfo |= (static_cast<uint8_t>(m_sensingSubtype) & 0x0f) << 1;
+        i.WriteU8(sensingCommonInfo);
+    }
+
     for (auto& ui : m_userInfoFields)
     {
         i = ui.Serialize(i);
@@ -1875,6 +1899,16 @@ CtrlTriggerHeader::Deserialize(Buffer::Iterator start)
                     "GCR-MU-BAR Trigger frame is not supported");
     NS_ABORT_MSG_IF(m_triggerType == TriggerFrameType::NFRP_TRIGGER,
                     "NFRP Trigger frame is not supported");
+
+    // 802.11bf: read Sensing Trigger Dependent Common Info (1 byte) for SENSING_TRIGGER
+    m_sensingField   = false;
+    m_sensingSubtype = SensingTriggerSubtype::SR2SI_SOUNDING;
+    if (m_triggerType == TriggerFrameType::SENSING_TRIGGER)
+    {
+        uint8_t sensingCommonInfo = i.ReadU8();
+        m_sensingField   = (sensingCommonInfo & 0x01) != 0;
+        m_sensingSubtype = static_cast<SensingTriggerSubtype>((sensingCommonInfo >> 1) & 0x0f);
+    }
 
     while (i.GetRemainingSize() >= 2)
     {
@@ -1930,6 +1964,7 @@ CtrlTriggerHeader::GetTypeString(TriggerFrameType type)
         FOO(GCR_MU_BAR_TRIGGER);
         FOO(BQRP_TRIGGER);
         FOO(NFRP_TRIGGER);
+        FOO(SENSING_TRIGGER);
     default:
         return "ERROR";
     }
@@ -1982,6 +2017,40 @@ bool
 CtrlTriggerHeader::IsNfrp() const
 {
     return (m_triggerType == TriggerFrameType::NFRP_TRIGGER);
+}
+
+bool
+CtrlTriggerHeader::IsSensing() const
+{
+    return (m_triggerType == TriggerFrameType::SENSING_TRIGGER);
+}
+
+bool
+CtrlTriggerHeader::GetSensingField() const
+{
+    NS_ABORT_MSG_IF(!IsSensing(), "GetSensingField() only valid for SENSING_TRIGGER frames");
+    return m_sensingField;
+}
+
+void
+CtrlTriggerHeader::SetSensingField(bool sensing)
+{
+    NS_ABORT_MSG_IF(!IsSensing(), "SetSensingField() only valid for SENSING_TRIGGER frames");
+    m_sensingField = sensing;
+}
+
+SensingTriggerSubtype
+CtrlTriggerHeader::GetSensingSubtype() const
+{
+    NS_ABORT_MSG_IF(!IsSensing(), "GetSensingSubtype() only valid for SENSING_TRIGGER frames");
+    return m_sensingSubtype;
+}
+
+void
+CtrlTriggerHeader::SetSensingSubtype(SensingTriggerSubtype subtype)
+{
+    NS_ABORT_MSG_IF(!IsSensing(), "SetSensingSubtype() only valid for SENSING_TRIGGER frames");
+    m_sensingSubtype = subtype;
 }
 
 void

@@ -565,7 +565,23 @@ enum class TriggerFrameType : uint8_t
     BSRP_TRIGGER = 4,       // Buffer Status Report Poll
     GCR_MU_BAR_TRIGGER = 5, // Groupcast with Retries MU-BAR
     BQRP_TRIGGER = 6,       // Bandwidth Query Report Poll
-    NFRP_TRIGGER = 7        // NDP Feedback Report Poll
+    NFRP_TRIGGER = 7,       // NDP Feedback Report Poll
+    SENSING_TRIGGER = 8     // 802.11bf Sensing Trigger (Sensing field=1, Subtype=1 for SR2SI)
+};
+
+/**
+ * \ingroup wifi
+ * Sensing Trigger Subtype values for SENSING_TRIGGER frames (802.11bf).
+ * Only used when TriggerFrameType == SENSING_TRIGGER and Sensing field == 1.
+ */
+enum class SensingTriggerSubtype : uint8_t
+{
+    SENSING_POLLING = 0,   // AP->STAs: Polling phase of sensing procedure
+    SR2SI_SOUNDING   = 1,   // AP->STAs: solicited NDP sounding (SR2SI)
+    SENSING_THRESHOLD_BASED_REPORTING   = 2,   // Solicited sensing report
+    SENSING_REPORTING = 3,    // Unsolicited sensing report
+    SR2SR_SOUNDING = 4,   // AP->STA->STA: solicited NDP sounding (SR2SR)
+    // 5-15 reserved
 };
 
 /**
@@ -1109,6 +1125,40 @@ class CtrlTriggerHeader : public Header
      */
     bool IsNfrp() const;
     /**
+     * Check if this is a Sensing Trigger frame (802.11bf, Type=8).
+     *
+     * \return true if this is a Sensing Trigger frame, false otherwise
+     */
+    bool IsSensing() const;
+    /**
+     * Check if the Sensing field is set (Sensing Trigger variant).
+     * Only meaningful when IsSensing() == true.
+     *
+     * \return true if the Sensing field is 1
+     */
+    bool GetSensingField() const;
+    /**
+     * Set the Sensing field in the Trigger Dependent Common Info.
+     * Only valid for SENSING_TRIGGER frames.
+     *
+     * \param sensing true sets Sensing field to 1 (Sensing Trigger variant)
+     */
+    void SetSensingField(bool sensing);
+    /**
+     * Get the Sensing Trigger Subtype.
+     * Only meaningful when IsSensing() == true and GetSensingField() == true.
+     *
+     * \return the SensingTriggerSubtype value
+     */
+    SensingTriggerSubtype GetSensingSubtype() const;
+    /**
+     * Set the Sensing Trigger Subtype in the Trigger Dependent Common Info.
+     * Only valid for SENSING_TRIGGER frames with Sensing field == 1.
+     *
+     * \param subtype the SensingTriggerSubtype (e.g. SR2SI_SOUNDING = 1)
+     */
+    void SetSensingSubtype(SensingTriggerSubtype subtype);
+    /**
      * Set the UL Length subfield of the Common Info field.
      *
      * \param len the value for the UL Length subfield
@@ -1368,6 +1418,10 @@ class CtrlTriggerHeader : public Header
     uint8_t m_apTxPower;            //!< Tx Power used by AP to transmit the Trigger Frame
     uint16_t m_ulSpatialReuse;      //!< Value for the Spatial Reuse field in HE-SIG-A
     std::size_t m_padding;          //!< the size in bytes of the Padding field
+
+    // 802.11bf Sensing Trigger Dependent Common Info (present when m_triggerType == SENSING_TRIGGER)
+    bool m_sensingField;                    //!< Sensing field: 1 = Sensing Trigger variant
+    SensingTriggerSubtype m_sensingSubtype; //!< Sensing Trigger Subtype (1 = SR2SI sounding)
 
     /**
      * List of User Info fields
