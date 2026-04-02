@@ -232,6 +232,13 @@ class RrMultiUserScheduler : public MultiUserScheduler
      *  \return BF_NDPA_SOUNDING_TX if it is possible to do polling phase
      */
     virtual TxFormat TryNDPASoundingPhase11bf();
+    /**
+     * Build and send a Sensing Trigger Frame (802.11bf SR2SI, Type=8, Subtype=1).
+     * The AP transmits the TF to all sensing candidates; each STA responds with an NDP.
+     *
+     *  \return BF_TF_SOUNDING_TX if the Sensing TF was successfully built, NO_TX otherwise
+     */
+    virtual TxFormat TryTFSoundingPhase11bf();
 
     SoundingType m_soundingType = SoundingType::MU_only; //!< Type of sounding to perform
     std::list<CandidateInfo> m_candidatesCs;     //!< Candidate stations for channel sounding

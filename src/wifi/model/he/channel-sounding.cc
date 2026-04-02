@@ -448,6 +448,16 @@ CsBeamformer::GetBfReportInfo(Ptr<const WifiMpdu> bfReport, uint16_t staId)
     m_channelInfoList.insert(std::pair<uint16_t, ChannelInfo>(staId, staChannelInfo));
 }
 
+void
+CsBeamformer::RecordSensingNdpReceived(uint16_t staId)
+{
+    // 802.11bf SR2SI: the AP received an NDP from this STA in response to the Sensing TF.
+    // Insert an empty ChannelInfo placeholder so CheckAllChannelInfoReceived() counts
+    // this STA as having responded, without parsing a BF report (there is none for SR2SI).
+    m_channelInfoList.erase(staId);
+    m_channelInfoList.insert(std::pair<uint16_t, ChannelInfo>(staId, ChannelInfo{}));
+}
+
 std::list<uint16_t>
 CsBeamformer::CheckAllChannelInfoReceived(void)
 {

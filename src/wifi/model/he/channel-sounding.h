@@ -221,6 +221,8 @@ class CsBeamformer : public ChannelSounding
      */
     bool IsNdpSent(void);
 
+    void RecordSensingNdpReceived(uint16_t staId);
+
   protected:
     void DoDispose() override;
     void DoInitialize() override;
