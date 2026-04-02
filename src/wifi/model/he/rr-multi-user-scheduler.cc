@@ -237,7 +237,6 @@ RrMultiUserScheduler::SelectTxFormat()
                 {
                     if (GetLastTxFormat(0U) == BF_POLL_DL_TX)
                     {
-
                         return TryNDPASoundingPhase11bf();
                     }
                     else if (GetLastTxFormat(0U) == BF_NDPA_SOUNDING_TX_SU)
@@ -245,21 +244,27 @@ RrMultiUserScheduler::SelectTxFormat()
                         if (m_nextSUSounding)
                         {
                             TxFormat txFormat = TryNDPASoundingPhase11bf();
-                            // std::cout << "txFormat returned by TryNDPASoundingPhase11bf() : " << txFormat << std::endl;
                             return txFormat;
                         }
                         else
                         {
                             TxFormat txFormat = TryPollingPhase11bf();
-                            // std::cout << "txFormat returned by TryPollingPhase11bf() : " << txFormat << std::endl;
                             return txFormat;
                         }
+                    }
+                }
+                else if (m_soundingType == TF_sounding)
+                {
+                    // TF Sounding (SR2SI): after polling, AP sends Sensing Trigger Frame
+                    // STAs respond with NDPs directly to the AP
+                    if (GetLastTxFormat(0U) == BF_POLL_DL_TX)
+                    {
+                        return TryTFSoundingPhase11bf();
                     }
                 }
                 else if (GetLastTxFormat(0U) == BF_POLL_DL_TX)
                 {
                     TxFormat txFormat = TryNDPASoundingPhase11bf();
-                    // std::cout << "txFormat returned by TryNDPASoundingPhase11bf() : " << txFormat << std::endl;
                     return txFormat;
                 }
             }
@@ -2495,6 +2500,143 @@ size_t
 RrMultiUserScheduler::GetPollingCandidatesSize()
 {
     return m_candidatesPoll.size();
+}
+
+MultiUserScheduler::TxFormat
+RrMultiUserScheduler::TryTFSoundingPhase11bf()
+{
+    NS_LOG_FUNCTION(this);
+
+    // Sensing candidates were already populated by TryPollingPhase11bf into m_candidatesCs.
+    // If empty (e.g. polling cleared them), fall back to m_candidatesPoll so we always
+    // have someone to sound.
+    if (m_candidatesCs.empty() && !m_candidatesPoll.empty())
+    {
+        for (auto& c : m_candidatesPoll)
+        {
+            m_candidatesCs.emplace_back(c.first, c.second);
+        }
+    }
+
+    if (m_candidatesCs.empty())
+    {
+        NS_LOG_DEBUG("TryTFSoundingPhase11bf: no sensing candidates, aborting");
+        SensingTimeout();
+        return NO_TX;
+    }
+
+    Ptr<HeConfiguration> heConfiguration = m_apMac->GetHeConfiguration();
+    NS_ASSERT(heConfiguration != nullptr);
+
+    // -----------------------------------------------------------------
+    // Build the TX vector for the solicited HE TB PPDU (UL from STAs)
+    // -----------------------------------------------------------------
+    WifiTxVector txVector;
+    txVector.SetChannelWidth(m_allowedWidth);
+    txVector.SetPreambleType(WIFI_PREAMBLE_HE_TB);
+    txVector.SetGuardInterval(heConfiguration->GetGuardInterval().GetNanoSeconds());
+    txVector.SetBssColor(heConfiguration->GetBssColor());
+
+    std::size_t nCentral26TonesRus;
+    std::size_t nCandidates = m_candidatesCs.size();
+    HeRu::RuType ruType = HeRu::GetEqualSizedRusForStations(m_allowedWidth,
+                                                             nCandidates,
+                                                             nCentral26TonesRus,
+                                                             true);
+    auto ruSet   = HeRu::GetRusOfType(m_allowedWidth, ruType);
+    auto ruSetIt = ruSet.begin();
+
+    for (auto& candidate : m_candidatesCs)
+    {
+        NS_ABORT_MSG_IF(ruSetIt == ruSet.end(), "Not enough RUs for all sensing candidates");
+
+        WifiMacHeader hdr(WIFI_MAC_QOSDATA);
+        hdr.SetAddr1(m_apMac->GetAddress());
+        hdr.SetAddr2(candidate.first->address);
+        WifiMode csMode =
+            GetHeFem(m_linkId)->GetCsMode() == "0"
+                ? GetWifiRemoteStationManager(m_linkId)->GetDataTxVector(hdr, m_allowedWidth).GetMode()
+                : WifiMode(GetHeFem(m_linkId)->GetCsMode());
+
+        txVector.SetHeMuUserInfo(candidate.first->aid,
+                                 {*ruSetIt++, csMode.GetMcsValue(), 1});
+    }
+
+    // -----------------------------------------------------------------
+    // Build the Sensing Trigger Frame header (Type=8, Sensing=1, Subtype=SR2SI=1)
+    // -----------------------------------------------------------------
+    CtrlTriggerHeader sensingTf(TriggerFrameType::SENSING_TRIGGER, txVector);
+    sensingTf.SetSensingField(true);
+    sensingTf.SetSensingSubtype(SensingTriggerSubtype::SR2SI_SOUNDING);
+
+    // UL length: use a NULL data frame (NDP) size as the expected response
+    WifiTxParameters txParamsTf;
+    txParamsTf.m_txVector =
+        m_apMac->GetWifiRemoteStationManager(m_linkId)->GetRtsTxVector(Mac48Address::GetBroadcast());
+    txParamsTf.m_txVector.SetBssColor(heConfiguration->GetBssColor());
+    txParamsTf.m_acknowledgment = std::unique_ptr<WifiAcknowledgment>(new WifiNoAck());
+    txParamsTf.m_protection     = std::unique_ptr<WifiProtection>(new WifiNoProtection());
+
+    // Estimate NDP duration for the UL length field
+    WifiTxParameters txParamsNdp;
+    WifiMode modeNdp("HeMcs0");
+    txParamsNdp.m_txVector.SetMode(modeNdp);
+    txParamsNdp.m_txVector.SetNTx(m_apMac->GetWifiPhy()->GetNumberOfAntennas());
+    txParamsNdp.m_txVector.SetNss(m_apMac->GetWifiPhy()->GetNumberOfAntennas());
+    txParamsNdp.m_txVector.SetPreambleType(WIFI_PREAMBLE_HE_SU);
+    txParamsNdp.m_txVector.SetChannelWidth(m_allowedWidth);
+    txParamsNdp.m_txVector.SetBssColor(heConfiguration->GetBssColor());
+    txParamsNdp.m_txVector.SetGuardInterval(800);
+
+    Ptr<Packet> packetNdp = Create<Packet>();
+    WifiMacHeader hdrNdp(WIFI_MAC_DATA_NULL);
+    hdrNdp.SetAddr1(Mac48Address::GetBroadcast());
+    hdrNdp.SetAddr2(m_apMac->GetAddress());
+    hdrNdp.SetDsNotTo();
+    hdrNdp.SetDsNotFrom();
+    Ptr<WifiMpdu> mpduNdp = Create<WifiMpdu>(packetNdp, hdrNdp);
+
+    Time actualAvailableTime = (m_initialFrame ? Time::Min() : m_availableTime);
+    if (!GetHeFem(m_linkId)->TryAddMpdu(mpduNdp, txParamsNdp, actualAvailableTime))
+    {
+        NS_LOG_DEBUG("TryTFSoundingPhase11bf: not enough time for NDP response");
+        SensingTimeout();
+        return NO_TX;
+    }
+
+    uint16_t ulLength;
+    Time ndpDuration;
+    std::tie(ulLength, ndpDuration) =
+        HePhy::ConvertHeTbPpduDurationToLSigLength(txParamsNdp.m_txDuration,
+                                                    txVector,
+                                                    m_apMac->GetWifiPhy()->GetPhyBand());
+    sensingTf.SetUlLength(ulLength);
+
+    // -----------------------------------------------------------------
+    // Store the Sensing TF in the beamformer and register sensing candidates
+    // -----------------------------------------------------------------
+    Ptr<WifiMpdu> mpduTf = GetTriggerFrame(sensingTf, m_linkId);
+
+    // Re-use the "Trigger" slot in BeamformerFrameInfo to hold the Sensing TF
+    GetHeFem(m_linkId)->GetCsBeamformer()->SetBeamformerFrames(mpduTf, "SensingTF");
+    GetHeFem(m_linkId)->GetCsBeamformer()->SetTxParameters(txParamsTf, "Trigger");
+
+    // Register which STAs are expected to send an NDP
+    std::list<Mac48Address> staMacAddrList;
+    for (auto& candidate : m_candidatesCs)
+    {
+        staMacAddrList.push_back(candidate.first->address);
+    }
+    GetHeFem(m_linkId)->GetCsBeamformer()->GenerateNdpaFrame(
+        m_apMac->GetAddress(),
+        staMacAddrList,
+        m_allowedWidth,
+        GetWifiRemoteStationManager(m_linkId));
+
+    NS_LOG_DEBUG("TryTFSoundingPhase11bf: Sensing TF built for "
+                 << m_candidatesCs.size() << " station(s)");
+
+    return TxFormat::BF_TF_SOUNDING_TX;
 }
 
 } // namespace ns3

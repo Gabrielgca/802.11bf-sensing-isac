@@ -534,6 +534,12 @@ CsBeamformer::SetBeamformerFrames(Ptr<WifiMpdu> mdpu, std::string frameType)
     {
         m_beamformerFrameInfo.m_trigger = mdpu;
     }
+    else if (frameType == "SensingTF")
+    {
+        // 802.11bf SR2SI Sensing Trigger Frame — stored in the same slot as the BFRP trigger
+        // so that SendCsFramesFromBeamformer / SendTFSoundingFrame can retrieve it uniformly
+        m_beamformerFrameInfo.m_trigger = mdpu;
+    }
     else
     {
         NS_FATAL_ERROR("Unrecognized frame type.");

@@ -73,7 +73,8 @@ class MultiUserScheduler : public Object
         BF_POLL_DL_TX,
         // attempt to modify MU-OFDMA for 11bf NDPA Sounding Phase
         BF_NDPA_SOUNDING_TX,
-        BF_NDPA_SOUNDING_TX_SU
+        BF_NDPA_SOUNDING_TX_SU,
+        BF_TF_SOUNDING_TX
     };
 
     /// Information to be provided in case of DL MU transmission
@@ -151,6 +152,7 @@ class MultiUserScheduler : public Object
         SU_only = 0,
         SU_and_MU = 1,
         MU_only = 2,
+        TF_sounding = 3
     };
 
     /// Information to be provided in case of UL MU transmission
