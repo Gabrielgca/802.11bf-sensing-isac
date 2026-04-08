@@ -66,7 +66,8 @@ class WifiTxTimer
         WAIT_BLOCK_ACK_AFTER_TB_PPDU,
         // attempt to add channel sounding from ns3.37 : new tx timers
         WAIT_BF_REPORT_AFTER_NDP,
-        WAIT_BF_REPORT_AFTER_BFRP_TF
+        WAIT_BF_REPORT_AFTER_BFRP_TF,
+        WAIT_BF_NDP_AFTER_SENSING_TF
     };
 
     /** Default constructor */

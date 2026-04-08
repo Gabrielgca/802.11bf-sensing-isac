@@ -90,7 +90,8 @@ HeFrameExchangeManager::GetTypeId()
 
 HeFrameExchangeManager::HeFrameExchangeManager()
     : m_intraBssNavEnd(0),
-      m_triggerFrameInAmpdu(false)
+      m_triggerFrameInAmpdu(false),
+      m_waitingForSensingNdp(false)
 {
     NS_LOG_FUNCTION(this);
 }
@@ -390,6 +391,16 @@ HeFrameExchangeManager::StartFrameExchange(Ptr<QosTxop> edca, Time availableTime
     {
         m_lastCsTime = Simulator::Now();
         SendCsFramesFromBeamformer();
+        return true;
+    }
+
+    // 802.11bf SR2SI TF Sounding: AP sends a Sensing Trigger Frame, STAs respond with NDPs
+    if (txFormat == MultiUserScheduler::BF_TF_SOUNDING_TX)
+    {
+        NS_LOG_INFO("HeFrameExchangeManager::StartFrameExchange: BF_TF_SOUNDING_TX");
+        m_lastCsTime = Simulator::Now();
+        SendTFSoundingFrame();
+        m_psduMap.clear();
         return true;
     }
 
@@ -934,6 +945,17 @@ HeFrameExchangeManager::SendPsduMap()
             txVector = trigger.GetHeTbTxVector(trigger.begin()->GetAid12());
             responseTxVector = &txVector;
             timerType = WifiTxTimer::WAIT_BF_REPORT_AFTER_BFRP_TF;
+        }
+        else if (trigger.IsSensing())
+        {
+            // 802.11bf Sensing Trigger (SR2SI): STAs respond with NDPs.
+            // Reuse WAIT_BF_REPORT_AFTER_BFRP_TF timer so the existing
+            // receive path fires; NDP reception is handled in ReceiveMpdu.
+            m_trigVector = GetTrigVector(trigger);
+            txVector = trigger.GetHeTbTxVector(trigger.begin()->GetAid12());
+            responseTxVector = &txVector;
+            timerType = WifiTxTimer::WAIT_BF_REPORT_AFTER_BFRP_TF;
+            m_waitingForSensingNdp = true;
         }
         /*
          * BSRP Trigger Frame
@@ -2767,6 +2789,48 @@ HeFrameExchangeManager::ReceiveMpdu(Ptr<const WifiMpdu> mpdu,
         // std::cout << "the received TB PPDU has been processed" << std::endl;
         return;
     }
+    // 802.11bf SR2SI: AP receives NDP from a STA in response to the Sensing Trigger Frame
+    if (hdr.IsNdp() && m_apMac != nullptr && m_waitingForSensingNdp &&
+        m_txTimer.IsRunning() &&
+        m_txTimer.GetReason() == WifiTxTimer::WAIT_BF_REPORT_AFTER_BFRP_TF)
+    {
+        uint16_t staId = m_apMac->GetAssociationId(hdr.GetAddr2(), m_linkId);
+        if (m_csBeamformer != nullptr &&
+            std::find(m_csBeamformer->GetCsStaIdList().begin(),
+                      m_csBeamformer->GetCsStaIdList().end(),
+                      staId) != m_csBeamformer->GetCsStaIdList().end())
+        {
+            // Record this STA's NDP as received by inserting a placeholder channel info entry
+            m_csBeamformer->RecordSensingNdpReceived(staId);
+
+            std::list<uint16_t> remaining = m_csBeamformer->CheckAllChannelInfoReceived();
+            if (remaining.empty())
+            {
+                NS_LOG_INFO("SR2SI: received NDPs from all stations. Sensing TF exchange complete.");
+                m_txTimer.Cancel();
+                m_waitingForSensingNdp = false;
+
+                if (m_apMac->IsInCfp())
+                {
+                    m_apMac->GetWifiPhy()->NotifyMonitorChannelAccess(GetAddress(),
+                                                                      Simulator::Now(),
+                                                                      true);
+                    m_psduMap.clear();
+                    m_edca->EndTxNoAck(m_linkId);
+                    m_edca->NotifyChannelReleasedForPCF(0U);
+                    ResetSensingTimeout();
+                    m_apMac->EndSensingMeasurementExchange();
+                    m_edca = nullptr;
+                }
+                else
+                {
+                    TransmissionSucceeded();
+                    m_lastCsTime = Simulator::Now();
+                }
+            }
+        }
+        return;
+    }
     // attempt to add channel sounding from ns3.37 : add condition for case NDP frame is received
     if (hdr.IsNdp() && m_staMac != nullptr && m_csBeamformee != nullptr &&
         m_csBeamformee->IsNdpaReceived())
@@ -3262,6 +3326,18 @@ HeFrameExchangeManager::ReceiveMpdu(Ptr<const WifiMpdu> mpdu,
                                     trigger,
                                     hdr);
             }
+            // 802.11bf SR2SI: STA receives a Sensing Trigger Frame and responds with an NDP
+            else if (trigger.IsSensing() &&
+                     trigger.GetSensingField() &&
+                     trigger.GetSensingSubtype() == SensingTriggerSubtype::SR2SI_SOUNDING)
+            {
+                NS_LOG_INFO("Received SR2SI Sensing Trigger Frame from " << hdr.GetAddr2());
+                Simulator::Schedule(m_phy->GetSifs(),
+                                    &HeFrameExchangeManager::ReceiveSensingTrigger,
+                                    this,
+                                    trigger,
+                                    hdr);
+            }
         }
         // attempt to add channel sounding from ns3.37 : add condition if recevied frame NDPA
         else if (hdr.IsNdpa() && m_csBeamformee != nullptr)
@@ -3502,6 +3578,49 @@ HeFrameExchangeManager::ReceiveBfrpTrigger(const CtrlTriggerHeader& trigger,
 }
 
 void
+HeFrameExchangeManager::ReceiveSensingTrigger(const CtrlTriggerHeader& trigger,
+                                              const WifiMacHeader& hdr)
+{
+    NS_LOG_FUNCTION(this << hdr);
+    NS_ASSERT(trigger.IsSensing());
+    NS_ASSERT(m_staMac != nullptr && m_staMac->IsAssociated());
+
+    NS_LOG_INFO("SR2SI: STA " << m_self << " sending NDP in response to Sensing TF");
+
+    if (trigger.GetCsRequired() && hdr.GetAddr2() != m_txopHolder && m_navEnd > Simulator::Now())
+    {
+        NS_LOG_DEBUG("CS required and channel busy, not responding to Sensing TF");
+        return;
+    }
+
+    uint16_t staId = m_staMac->GetAssociationId();
+
+    // Build a NULL data frame (NDP) addressed to the AP
+    Ptr<Packet> packetNdp = Create<Packet>();
+    WifiMacHeader hdrNdp(WIFI_MAC_DATA_NULL);
+    hdrNdp.SetAddr1(hdr.GetAddr2()); // AP address
+    hdrNdp.SetAddr2(m_self);
+    hdrNdp.SetAddr3(m_bssid);
+    hdrNdp.SetDsNotTo();
+    hdrNdp.SetDsFrom();
+    hdrNdp.SetNoMoreFragments();
+    hdrNdp.SetNoRetry();
+    Ptr<WifiMpdu> ndp = Create<WifiMpdu>(packetNdp, hdrNdp);
+
+    // Use the HE TB TX vector solicited by the Sensing TF
+    m_txParams.Clear();
+    m_txParams.m_txVector = GetHeTbTxVector(trigger, hdr.GetAddr2());
+    m_txParams.m_acknowledgment = std::unique_ptr<WifiAcknowledgment>(new WifiNoAck());
+    m_txParams.m_protection     = std::unique_ptr<WifiProtection>(new WifiNoProtection());
+
+    m_txParams.AddMpdu(ndp);
+    UpdateTxDuration(hdrNdp.GetAddr1(), m_txParams);
+
+    Ptr<WifiPsdu> psdu = GetWifiPsdu(ndp, m_txParams.m_txVector);
+    SendPsduMapWithProtection(WifiPsduMap{{staId, psdu}}, m_txParams);
+}
+
+void
 HeFrameExchangeManager::BfReportTimeout(void)
 {
     NS_LOG_FUNCTION(this);
@@ -3583,6 +3702,27 @@ HeFrameExchangeManager::SendCsFramesFromBeamformer()
                      m_csBeamformer->GetBeamformerFrameInfo().m_txParamsBfrpTrigger.m_txVector)}},
             m_csBeamformer->GetBeamformerFrameInfo().m_txParamsBfrpTrigger);
     }
+}
+
+void
+HeFrameExchangeManager::SendTFSoundingFrame()
+{
+    // 802.11bf SR2SI: send the Sensing Trigger Frame (stored in m_trigger slot).
+    // STAs that receive it will respond with an NDP. The AP collects those NDPs
+    // and completes the sensing exchange once all expected STAs have responded.
+    NS_ABORT_MSG_IF(m_csBeamformer == nullptr, "SendTFSoundingFrame: no CsBeamformer");
+    NS_ABORT_MSG_IF(m_csBeamformer->GetBeamformerFrameInfo().m_trigger == nullptr,
+                    "SendTFSoundingFrame: Sensing TF not set in BeamformerFrameInfo");
+
+    m_waitingForSensingNdp = false; // will be set to true by SendPsduMapWithProtection dispatch
+
+    WifiTxParameters txParams = m_csBeamformer->GetBeamformerFrameInfo().m_txParamsBfrpTrigger;
+    Ptr<WifiMpdu> sensingTf   = m_csBeamformer->GetBeamformerFrameInfo().m_trigger;
+
+    SendPsduMapWithProtection(
+        WifiPsduMap{
+            {SU_STA_ID, GetWifiPsdu(sensingTf, txParams.m_txVector)}},
+        txParams);
 }
 
 Ptr<CsBeamformer>
@@ -3697,6 +3837,7 @@ HeFrameExchangeManager::ResetSensingTimeout()
     {
         m_Polling_Receive_mutex = 0;
         m_NDPA_Sounding_mutex = 0;
+        m_waitingForSensingNdp = false;
         m_muScheduler->SensingTimeout();
         if (m_edca)
         {

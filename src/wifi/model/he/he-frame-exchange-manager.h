@@ -472,6 +472,10 @@ class HeFrameExchangeManager : public VhtFrameExchangeManager
     */
     bool m_NDPA_Sounding_mutex = 0;
     bool m_Polling_Receive_mutex = 0;
+
+    void ReceiveSensingTrigger(const CtrlTriggerHeader& trigger, const WifiMacHeader& hdr); // Receive 802.11bf SR2SI Sensing Trigger Frame
+    void SendTFSoundingFrame();   ///< Send 802.11bf SR2SI Sensing Trigger Frame
+    bool m_waitingForSensingNdp;  ///< True while AP awaits NDP responses to a Sensing TF
     // Time remainingTxopForSensing = m_apMac->GetRemainingCfpDuration();
 };
 
