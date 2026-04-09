@@ -398,6 +398,7 @@ HeFrameExchangeManager::StartFrameExchange(Ptr<QosTxop> edca, Time availableTime
     if (txFormat == MultiUserScheduler::BF_TF_SOUNDING_TX)
     {
         NS_LOG_INFO("HeFrameExchangeManager::StartFrameExchange: BF_TF_SOUNDING_TX");
+        std::cout << "HeFrameExchangeManager::StartFrameExchange: BF_TF_SOUNDING_TX" << std::endl;
         m_lastCsTime = Simulator::Now();
         SendTFSoundingFrame();
         m_psduMap.clear();
@@ -956,6 +957,7 @@ HeFrameExchangeManager::SendPsduMap()
             responseTxVector = &txVector;
             timerType = WifiTxTimer::WAIT_BF_REPORT_AFTER_BFRP_TF;
             m_waitingForSensingNdp = true;
+            std::cout << "SendPsduMap Set waiting for sensing NDP to true at " << Simulator::Now() << std::endl;
         }
         /*
          * BSRP Trigger Frame
@@ -1246,6 +1248,7 @@ HeFrameExchangeManager::SendPsduMap()
             // attempt to add channel sounding from ns3.37 : timer for beamforming report
             // modification : adding staExpectResponseFrom as a parameter because changes of set
             // function
+        case WifiTxTimer::WAIT_BF_NDP_AFTER_SENSING_TF:
         case WifiTxTimer::WAIT_BF_REPORT_AFTER_BFRP_TF:
             m_txTimer.Set(timerType,
                           timeout,
@@ -2801,6 +2804,7 @@ HeFrameExchangeManager::ReceiveMpdu(Ptr<const WifiMpdu> mpdu,
                       staId) != m_csBeamformer->GetCsStaIdList().end())
         {
             // Record this STA's NDP as received by inserting a placeholder channel info entry
+            std::cout << "ReceiveMpdu RecordSensingNdpReceived for station " << staId << std::endl;
             m_csBeamformer->RecordSensingNdpReceived(staId);
 
             std::list<uint16_t> remaining = m_csBeamformer->CheckAllChannelInfoReceived();
@@ -3332,6 +3336,7 @@ HeFrameExchangeManager::ReceiveMpdu(Ptr<const WifiMpdu> mpdu,
                      trigger.GetSensingSubtype() == SensingTriggerSubtype::SR2SI_SOUNDING)
             {
                 NS_LOG_INFO("Received SR2SI Sensing Trigger Frame from " << hdr.GetAddr2());
+                std::cout << "Received SR2SI Sensing Trigger Frame from " << hdr.GetAddr2() << std::endl;
                 Simulator::Schedule(m_phy->GetSifs(),
                                     &HeFrameExchangeManager::ReceiveSensingTrigger,
                                     this,
@@ -3629,7 +3634,7 @@ HeFrameExchangeManager::BfReportTimeout(void)
     {
         std::list<uint16_t> sta = m_csBeamformer->CheckAllChannelInfoReceived();
         NS_LOG_INFO("There are " << sta.size() << " stations that failed to feed back CSI.");
-
+        std::cout << "BfReportTimeout: " << sta.size() << " stations failed to feed back CSI." << std::endl;
         if (sta.size() == m_csBeamformer->GetNumCsStations())
         {
             if (m_apMac && m_edca && m_apMac->IsInCfp())

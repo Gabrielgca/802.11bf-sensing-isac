@@ -126,7 +126,7 @@ RrMultiUserScheduler::GetTypeId()
                           "The type of sounding to be used",
                           UintegerValue(2),
                           MakeUintegerAccessor(&RrMultiUserScheduler::m_soundingType),
-                          MakeUintegerChecker<uint8_t>(0, 2));
+                          MakeUintegerChecker<uint8_t>(0, 3));
     return tid;
 }
 
@@ -233,6 +233,7 @@ RrMultiUserScheduler::SelectTxFormat()
         {
             if (IsChannelSoundingEnabled())
             {
+                std::cout << "m_soundingType: " << static_cast<int>(m_soundingType) << std::endl;
                 if (m_soundingType == SU_only)
                 {
                     if (GetLastTxFormat(0U) == BF_POLL_DL_TX)
@@ -257,13 +258,17 @@ RrMultiUserScheduler::SelectTxFormat()
                 {
                     // TF Sounding (SR2SI): after polling, AP sends Sensing Trigger Frame
                     // STAs respond with NDPs directly to the AP
+                    std::cout << " GetLastTxFormat(0U) : " << GetLastTxFormat(0U) << std::endl;
                     if (GetLastTxFormat(0U) == BF_POLL_DL_TX)
                     {
+                        std::cout << "TF Sounding: TryTFSoundingPhase11bf() because last TxFormat was BF_POLL_DL_TX" << std::endl;
+                        std::cout << "TryTFSoundingPhase11bf " << TryTFSoundingPhase11bf() << std::endl;
                         return TryTFSoundingPhase11bf();
                     }
                 }
                 else if (GetLastTxFormat(0U) == BF_POLL_DL_TX)
                 {
+                    std::cout << "TryNDPASoundingPhase11bf() because last TxFormat was BF_POLL_DL_TX" << std::endl;
                     TxFormat txFormat = TryNDPASoundingPhase11bf();
                     return txFormat;
                 }

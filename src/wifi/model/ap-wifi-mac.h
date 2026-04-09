@@ -243,6 +243,14 @@ class ApWifiMac : public InfrastructureWifiMac
 
     void StartCfPeriod();
 
+    /**
+     * Recurring CFP trigger fired at SensingInterval cadence. Starts a CFP
+     * (and the first sensing measurement exchange) if sensing is active and
+     * no previous CFP is still running. Always re-schedules itself via
+     * m_cfpEvent, so the chain is self-healing across skipped rounds.
+     */
+    void TriggerCfPeriod(uint8_t linkId = 0U);
+
     void StopCfPeriod();
 
     // Sends a CF-End broadcast frame directly via m_beaconTxop,

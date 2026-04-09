@@ -437,9 +437,11 @@ ApWifiMac::ForwardDown(Ptr<Packet> packet, Mac48Address from, Mac48Address to, u
                 if (!m_SensingAppBegin)
                 {
                     m_SensingAppBegin = true;
-                    // std::cout << "m_SensingAppBegin Beacon : " << Simulator::Now() << std::endl;
-                    SendOneBeacon(0U);
-                } 
+                    // Start the recurring CFP trigger chain; the first CFP fires
+                    // immediately (same user-visible behavior as before, where the
+                    // first data arrival kicked off the first sensing round).
+                    m_cfpEvent = Simulator::ScheduleNow(&ApWifiMac::TriggerCfPeriod, this, 0U);
+                }
 
                 // Only enqueue data OUTSIDE the sensing window.
                 if (!InfrastructureWifiMac::IsCfPeriod(0U))
@@ -1507,63 +1509,14 @@ ApWifiMac::SendOneBeacon(uint8_t linkId)
     }
     packet->AddHeader(beacon);
 
-    // The beacon has it's own special queue, so we load it in there
-
-    if (!GetPcfSupported())
-    {
-        m_beaconTxop->Queue(packet, hdr);
-        link.beaconEvent =
-            Simulator::Schedule(GetBeaconInterval(), &ApWifiMac::SendOneBeacon, this, linkId);
-    }
-    else
-    {
-        // Resetting the TXOP in case last transmission was failed
-        // GetQosTxop(AcIndex(m_SensingPriority))->ResetCw(linkId);
-        // Ptr<WifiMpdu> lastMpdu = GetQosTxop(AcIndex(m_SensingPriority))->PeekNextMpdu(linkId);
-        // if (lastMpdu)
-        // {
-        //     GetQosTxop(AcIndex(m_SensingPriority))->GetWifiMacQueue()->DequeueIfQueued({lastMpdu});
-        // }
-        
-        // StopCfPeriod();
-
-        if (m_SensingAppBegin)
-        {
-            // // std::cout << "Sensing start from : " << GetAddress() << " " << Simulator::Now()
-            //           << std::endl;
-            GetWifiPhy()->NotifyMonitorChannelAccess(GetAddress(), Simulator::Now(), false);
-            // StartCfPeriod();
-            GetQosTxop(AcIndex(m_SensingPriority))
-                ->SetTxOkCallback(MakeCallback(&ApWifiMac::TxOk, this));
-
-            if (GetPcfSupported())
-            {
-                if (GetQosSupported())
-                {
-                    // Use the standard queue for the beacon
-                    // // std::cout << ""
-                    GetQosTxop(AcIndex(m_SensingPriority))->SetInfMac(this);
-                    SetTxop(GetQosTxop(AcIndex(m_SensingPriority)));
-                    GetQosTxop(AcIndex(m_SensingPriority))->Queue(packet, hdr);
-                }
-                else
-                {
-                    GetTxop()->SetInfMac(this);
-                    SetTxop(GetTxop());
-                    GetTxop()->Queue(packet, hdr);
-                }
-            }
-            Simulator::Schedule(GetSensingInterval(), &ApWifiMac::SendOneBeacon, this, 0U);
-            // Simulator::Schedule(GetCfpMaxDuration()/2 - GetWifiPhy(0U)->GetPifs(),
-            //                     &ApWifiMac::EndSensingMeasurementExchange,
-            //                     this,
-            //                     0U);
-        }
-        else
-        {
-            m_beaconTxop->Queue(packet, hdr);
-        }
-    }
+    // Beacons always use their own dedicated high-priority queue (m_beaconTxop,
+    // AIFSN=1, CW=0) and are re-scheduled at the standard BeaconInterval,
+    // regardless of whether PCF/sensing is active. The CFP cadence is driven
+    // independently by m_cfpEvent at SensingInterval (see TriggerCfPeriod()),
+    // so we no longer overload the beacon path to start CFPs.
+    m_beaconTxop->Queue(packet, hdr);
+    link.beaconEvent =
+        Simulator::Schedule(GetBeaconInterval(), &ApWifiMac::SendOneBeacon, this, linkId);
     // If a STA that does not support Short Slot Time associates,
     // the AP shall use long slot time beginning at the first Beacon
     // subsequent to the association of the long slot time STA.
@@ -1630,12 +1583,6 @@ ApWifiMac::TxOk(Ptr<const WifiMpdu> mpdu)
             // Apply the negotiated TID-to-Link Mapping (if any) for DL direction
             ApplyTidLinkMapping(*staMldAddress, WifiDirection::DOWNLINK);
         }
-    }
-    else if (hdr.IsBeacon() && GetPcfSupported() && m_SensingAppBegin && !m_inCfp)
-    {
-        std::cout << "TXOK for beacon from : " << GetAddress() << " " << Simulator::Now() << std::endl;
-        StartCfPeriod();
-        Simulator::Schedule(GetWifiPhy()->GetSifs(), &ApWifiMac::StartSensingMeasurementExchange, this, 0U);
     }
     else if (hdr.IsCfEnd())
     {
@@ -1722,130 +1669,9 @@ ApWifiMac::TxFailed(WifiMacDropReason timeoutReason, Ptr<const WifiMpdu> mpdu)
         IncrementPollingListIterator();
         // SendNextCfFrame(0U);
     }
-    else if (hdr.IsBeacon())
-    {
-        if (GetPcfSupported())
-        {
-            NS_ASSERT_MSG(m_SensingAppBegin, "Sensing not started");
-            // std::cout << "Beacon failed! from : " << GetAddress() << " " << Simulator::Now() << "reason : " << static_cast<int>(timeoutReason) << std::endl;
-            Ptr<WifiMpdu> lastMpdu = GetQosTxop(AcIndex(m_SensingPriority))->PeekNextMpdu(0U);
-            if (lastMpdu)
-            {
-                GetQosTxop(AcIndex(m_SensingPriority))
-                    ->GetWifiMacQueue()
-                    ->DequeueIfQueued({lastMpdu});
-            }
-            auto& link = GetLink(0U);
-            WifiMacHeader hdr;
-            hdr.SetType(WIFI_MAC_MGT_BEACON);
-            hdr.SetAddr1(Mac48Address::GetBroadcast());
-            hdr.SetAddr2(link.feManager->GetAddress());
-            hdr.SetAddr3(link.feManager->GetAddress());
-            hdr.SetDsNotFrom();
-            hdr.SetDsNotTo();
-            Ptr<Packet> packet = Create<Packet>();
-            MgtBeaconHeader beacon;
-            beacon.Get<Ssid>() = GetSsid();
-            auto supportedRates = GetSupportedRates(0U);
-            beacon.Get<SupportedRates>() = supportedRates.rates;
-            beacon.Get<ExtendedSupportedRatesIE>() = supportedRates.extendedRates;
-            beacon.SetBeaconIntervalUs(GetBeaconInterval().GetMicroSeconds());
-            beacon.Capabilities() = GetCapabilities(0U);
-            GetWifiRemoteStationManager(0U)->SetShortPreambleEnabled(link.shortPreambleEnabled);
-            GetWifiRemoteStationManager(0U)->SetShortSlotTimeEnabled(link.shortSlotTimeEnabled);
-            if (GetPcfSupported())
-            {
-                beacon.Get<CfParameterSet>() = GetCfParameterSet();
-                // beacon.SetCfParameterSet(GetCfParameterSet());
-            }
-            if (GetDsssSupported(0U))
-            {
-                beacon.Get<DsssParameterSet>() = GetDsssParameterSet(0U);
-            }
-            if (GetErpSupported(0U))
-            {
-                beacon.Get<ErpInformation>() = GetErpInformation(0U);
-            }
-            if (GetQosSupported())
-            {
-                beacon.Get<EdcaParameterSet>() = GetEdcaParameterSet(0U);
-            }
-            if (GetHtSupported())
-            {
-                beacon.Get<ExtendedCapabilities>() = GetExtendedCapabilities();
-                beacon.Get<HtCapabilities>() = GetHtCapabilities(0U);
-                beacon.Get<HtOperation>() = GetHtOperation(0U);
-            }
-            if (GetVhtSupported(0U))
-            {
-                beacon.Get<VhtCapabilities>() = GetVhtCapabilities(0U);
-                beacon.Get<VhtOperation>() = GetVhtOperation(0U);
-            }
-            if (GetHeSupported())
-            {
-                beacon.Get<HeCapabilities>() = GetHeCapabilities(0U);
-                beacon.Get<HeOperation>() = GetHeOperation(0U);
-                if (auto muEdcaParameterSet = GetMuEdcaParameterSet();
-                    muEdcaParameterSet.has_value())
-                {
-                    beacon.Get<MuEdcaParameterSet>() = std::move(*muEdcaParameterSet);
-                }
-            }
-            if (GetEhtSupported())
-            {
-                beacon.Get<EhtCapabilities>() = GetEhtCapabilities(0U);
-                beacon.Get<EhtOperation>() = GetEhtOperation(0U);
-
-                if (GetNLinks() > 1)
-                {
-                    /*
-                     * If an AP is affiliated with an AP MLD and does not correspond to a
-                     * nontransmitted BSSID, then the Beacon and Probe Response frames transmitted
-                     * by the AP shall include a TBTT Information field in a Reduced Neighbor Report
-                     * element with the TBTT Information Length field set to 16 or higher, for each
-                     * of the other APs (if any) affiliated with the same AP MLD. (Sec. 35.3.4.1 of
-                     * 802.11be D2.1.1)
-                     */
-                    if (auto rnr = GetReducedNeighborReport(0U); rnr.has_value())
-                    {
-                        beacon.Get<ReducedNeighborReport>() = std::move(*rnr);
-                    }
-                    /*
-                     * If an AP affiliated with an AP MLD is not in a multiple BSSID set [..], the
-                     * AP shall include, in a Beacon frame or a Probe Response frame, which is not a
-                     * Multi-Link probe response, only the Common Info field of the Basic Multi-Link
-                     * element for the AP MLD unless conditions in 35.3.11 (Multi-link procedures
-                     * for channel switching, extended channel switching, and channel quieting) are
-                     * satisfied. (Sec. 35.3.4.4 of 802.11be D2.1.1)
-                     */
-                    beacon.Get<MultiLinkElement>() = GetMultiLinkElement(0U, WIFI_MAC_MGT_BEACON);
-                }
-            }
-            packet->AddHeader(beacon);
-
-            GetQosTxop(AcIndex(m_SensingPriority))->UpdateFailedCw(0U);
-            std::cout << "TX failed for beacon from : " << GetAddress() << " " << Simulator::Now() << std::endl;
-            StartCfPeriod();
-            GetQosTxop(AcIndex(m_SensingPriority))
-                ->SetTxOkCallback(MakeCallback(&ApWifiMac::TxOk, this));
-            if (GetPcfSupported())
-            {
-                if (GetQosSupported())
-                {
-                    // Use the standard queue for the beacon
-                    GetQosTxop(AcIndex(m_SensingPriority))->SetInfMac(this);
-                    SetTxop(GetQosTxop(AcIndex(m_SensingPriority)));
-                    GetQosTxop(AcIndex(m_SensingPriority))->Queue(packet, hdr);
-                }
-                else
-                {
-                    GetTxop()->SetInfMac(this);
-                    SetTxop(GetTxop());
-                    GetTxop()->Queue(packet, hdr);
-                }
-            }
-        }
-    }
+    // Beacons now always go through m_beaconTxop (AIFSN=1, CW=0). Its own
+    // channel-access state machine handles retries — we don't need to hand-craft
+    // a replacement beacon here.
 }
 
 void
@@ -2891,7 +2717,7 @@ ApWifiMac::StartCfPeriod()   // was StartCfPeriod(void) — keep signature consi
     NS_LOG_FUNCTION(this);
     NS_ASSERT(GetPcfSupported());
 
-    // std::cout << "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ AP Starts CF : " << GetAddress() << " " << Simulator::Now() << std::endl;
+    std::cout << "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ AP Starts CF : " << GetAddress() << " " << Simulator::Now() << std::endl;
     // std::cout << "BEFORE StartCfPeriod IsInCfp() : " << IsInCfp() << std::endl;
     m_inCfp = true;
 
@@ -2903,6 +2729,60 @@ ApWifiMac::StartCfPeriod()   // was StartCfPeriod(void) — keep signature consi
     NS_LOG_DEBUG("CFP started, max duration=" << GetCfpMaxDuration());
 
     Simulator::Schedule(InfrastructureWifiMac::GetCfpMaxDuration(), &ApWifiMac::StopCfPeriod, this);
+}
+
+void
+ApWifiMac::TriggerCfPeriod(uint8_t linkId)
+{
+    NS_LOG_FUNCTION(this << +linkId);
+    NS_ASSERT(GetPcfSupported());
+
+    // Always re-schedule the next CFP trigger FIRST so the chain is self-healing
+    // even if we bail out of this round (e.g. previous CFP still active).
+    m_cfpEvent = Simulator::Schedule(GetSensingInterval(),
+                                     &ApWifiMac::TriggerCfPeriod,
+                                     this,
+                                     linkId);
+
+    if (!m_SensingAppBegin)
+    {
+        // Sensing application not (yet) active: nothing to do.
+        return;
+    }
+
+    if (m_inCfp)
+    {
+        // A previous CFP has not finished; skip this round rather than stacking
+        // overlapping CFPs on top of each other.
+        NS_LOG_DEBUG("TriggerCfPeriod: previous CFP still active, skipping this round");
+        std::cout << "TriggerCfPeriod: skipping (still in CFP) at " << Simulator::Now() << std::endl;
+        return;
+    }
+
+    std::cout << "TriggerCfPeriod: starting CFP at " << Simulator::Now() << std::endl;
+
+    GetWifiPhy()->NotifyMonitorChannelAccess(GetAddress(), Simulator::Now(), false);
+
+    // Wire up the sensing-priority Txop as the current one so subsequent CF-Poll
+    // / trigger-frame transmissions go through it.
+    if (GetQosSupported())
+    {
+        GetQosTxop(AcIndex(m_SensingPriority))
+            ->SetTxOkCallback(MakeCallback(&ApWifiMac::TxOk, this));
+        GetQosTxop(AcIndex(m_SensingPriority))->SetInfMac(this);
+        SetTxop(GetQosTxop(AcIndex(m_SensingPriority)));
+    }
+    else
+    {
+        GetTxop()->SetInfMac(this);
+        SetTxop(GetTxop());
+    }
+
+    StartCfPeriod();
+    Simulator::Schedule(GetWifiPhy()->GetSifs(),
+                        &ApWifiMac::StartSensingMeasurementExchange,
+                        this,
+                        linkId);
 }
 
 void
@@ -2951,7 +2831,7 @@ ApWifiMac::StopCfPeriod()
     EndSensingMeasurementExchange(0U);
     m_cfpTimeoutEvent.Cancel();
     
-    // std::cout << "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ AP Stops CF by : " << GetAddress() << " " << Simulator::Now() << " number of SMEs : " << m_SMECounter << std::endl;
+    std::cout << "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ AP Stops CF by : " << GetAddress() << " " << Simulator::Now() << " number of SMEs : " << m_SMECounter << std::endl;
     m_SMECounter = 0;
     NS_LOG_DEBUG("CFP ended");
 }
@@ -3082,9 +2962,31 @@ ApWifiMac::EndSensingMeasurementExchange(uint8_t linkId)
 
     if (m_inCfp)
     {
-        std::cout << "Sensing round complete at " << Simulator::Now() << ", scheduling next round" << std::endl;
-        Simulator::ScheduleNow( &ApWifiMac::StartSensingMeasurementExchange, this, linkId);  
-    }         
+        // Don't start another sensing round if there isn't enough CFP time
+        // left for it to complete. Without this guard, a newly-started round
+        // can race with StopCfPeriod(): the BF_POLL_DL_TX sequence fires a
+        // deferred SendPsduMapWithProtection() after CFP end, and the path
+        // inside HeFrameExchangeManager::SendPsduMap then hits
+        // GetUlMuInfo() with a stale BF_POLL_DL_TX lastTxFormat and aborts.
+        Time elapsed = Simulator::Now() - GetCfpStart();
+        Time remaining = GetCfpMaxDuration() - elapsed;
+        // A full sensing round (BF_POLL_DL + TF sounding + NDP responses)
+        // takes on the order of ~450 μs in this setup; leave a conservative
+        // 1 ms margin to make sure it fits.
+        // TODO: make this more robust by measuring the actual time taken by a sensing round and using that as margin.
+        const Time minSmeBudget = MilliSeconds(1);
+        if (remaining > minSmeBudget)
+        {
+            std::cout << "Sensing round complete at " << Simulator::Now() << ", scheduling next round" << std::endl;
+            Simulator::ScheduleNow(&ApWifiMac::StartSensingMeasurementExchange, this, linkId);
+        }
+        else
+        {
+            std::cout << "Sensing round complete at " << Simulator::Now()
+                      << ", skipping next round (only " << remaining.As(Time::US)
+                      << " left in CFP)" << std::endl;
+        }
+    }
     
     // WifiMacHeader cfEndHdr;
     // cfEndHdr.SetType(WIFI_MAC_CTL_END);
