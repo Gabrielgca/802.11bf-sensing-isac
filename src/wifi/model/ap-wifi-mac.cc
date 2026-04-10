@@ -444,11 +444,14 @@ ApWifiMac::ForwardDown(Ptr<Packet> packet, Mac48Address from, Mac48Address to, u
                 }
 
                 // Only enqueue data OUTSIDE the sensing window.
+                // NOTE: Do NOT emit NotifyMonitorChannelAccess(false) here.
+                // TriggerCfPeriod() already emits the proper "start" signal once per CFP.
+                // Emitting it on every data arrival would create spurious (data TX → true)
+                // pairs via FrameExchangeManager::TransmissionSucceeded, inflating the
+                // "successful sensing" counter.
                 if (!InfrastructureWifiMac::IsCfPeriod(0U))
                 {
                     // std::cout << "IT IS NOT IsCfPeriod, sending data frame from " << from << " to " << to << " with TID " << +tid << std::endl;
-                    GetWifiPhy()->NotifyMonitorChannelAccess(
-                        GetAddress(), Simulator::Now(), false);
                     GetQosTxop(tid)->Queue(packet, hdr);
                 }
             }
