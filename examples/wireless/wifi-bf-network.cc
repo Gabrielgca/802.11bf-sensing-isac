@@ -1338,7 +1338,7 @@ main(int argc, char* argv[])
     int channelWidth{20};                 // Bandwidth
     Time channelSoundingInterval{"5ms"};  // Channel sounding interval (Channel sounding is disabled
                                           // if the interval is set as "0")
-    uint32_t payloadSize = 700;           // Payload size
+    uint32_t payloadSize = 1400;          // Payload size
     uint8_t ngSu = 4;                     // Subcarrier grouping Ng for SU channel sounding
     uint8_t ngMu = 4;                     // Subcarrier grouping Ng for MU channel sounding
     std::string codebookSizeSu = "(6,4)"; // Codebook size for SU channel sounding
@@ -2637,8 +2637,8 @@ main(int argc, char* argv[])
                               << std::endl;
                     rxBytes += payloadSize *
                                DynamicCast<UdpServer>(serverApplications.Get(index))->GetReceived();
-                    throughput += ((rxBytes * 8) / (simulationTime * 1000000.0)); // Mbit/s
                 }
+                throughput = ((rxBytes * 8) / (simulationTime * 1000000.0)); // Mbit/s
             }
             else
             {
@@ -2648,7 +2648,7 @@ main(int argc, char* argv[])
                     std::cout << "inside loop"  << std::endl;
                     rxBytes += DynamicCast<PacketSink>(serverApplications.Get(index))->GetTotalRx();
                 }
-                throughput += ((rxBytes * 8) / (simulationTime * 1000000.0)); // Mbit/s
+                throughput = ((rxBytes * 8) / (simulationTime * 1000000.0)); // Mbit/s
             }
 
             std::cout << "4 Overal throughput from 802.11bf BSS: " << throughput << " Mbit/s"
