@@ -3603,11 +3603,11 @@ HeFrameExchangeManager::ReceiveSensingTrigger(const CtrlTriggerHeader& trigger,
     // Build a NULL data frame (NDP) addressed to the AP
     Ptr<Packet> packetNdp = Create<Packet>();
     WifiMacHeader hdrNdp(WIFI_MAC_DATA_NULL);
-    hdrNdp.SetAddr1(hdr.GetAddr2()); // AP address
-    hdrNdp.SetAddr2(m_self);
-    hdrNdp.SetAddr3(m_bssid);
-    hdrNdp.SetDsNotTo();
-    hdrNdp.SetDsFrom();
+    hdrNdp.SetAddr1(hdr.GetAddr2()); // RA = AP address
+    hdrNdp.SetAddr2(m_self);         // TA = STA (this device)
+    hdrNdp.SetAddr3(m_bssid);        // DA = BSSID (AP)
+    hdrNdp.SetDsTo();                // ToDS=1: uplink frame (STA → AP)
+    hdrNdp.SetDsNotFrom();           // FromDS=0
     hdrNdp.SetNoMoreFragments();
     hdrNdp.SetNoRetry();
     Ptr<WifiMpdu> ndp = Create<WifiMpdu>(packetNdp, hdrNdp);
