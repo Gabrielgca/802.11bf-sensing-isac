@@ -443,13 +443,14 @@ ApWifiMac::ForwardDown(Ptr<Packet> packet, Mac48Address from, Mac48Address to, u
                     m_cfpEvent = Simulator::ScheduleNow(&ApWifiMac::TriggerCfPeriod, this, 0U);
                 }
 
-                // Only enqueue data OUTSIDE the sensing window.
+                // Only block unicast data during the sensing window.
+                // Broadcasts (e.g. ARP requests) must always go through — dropping them
+                // during CFP starves ARP resolution for STAs whose first ARP request
+                // happens to land inside a CFP, delaying their data delivery by ~1s
+                // per ARP retry (up to several seconds).
                 // NOTE: Do NOT emit NotifyMonitorChannelAccess(false) here.
                 // TriggerCfPeriod() already emits the proper "start" signal once per CFP.
-                // Emitting it on every data arrival would create spurious (data TX → true)
-                // pairs via FrameExchangeManager::TransmissionSucceeded, inflating the
-                // "successful sensing" counter.
-                if (!InfrastructureWifiMac::IsCfPeriod(0U))
+                if (!InfrastructureWifiMac::IsCfPeriod(0U) || to.IsGroup())
                 {
                     // std::cout << "IT IS NOT IsCfPeriod, sending data frame from " << from << " to " << to << " with TID " << +tid << std::endl;
                     GetQosTxop(tid)->Queue(packet, hdr);
