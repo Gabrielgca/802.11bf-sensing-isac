@@ -1292,6 +1292,48 @@ main(int argc, char* argv[])
     /***********************************/
     // Parameter for Channel Sounding  //
     /***********************************/
+
+// Packets received: 13762
+// Packets received: 4699
+// 4 Overal throughput from 802.11bf BSS: 60.1496 Mbit/s
+// # Signal (dbm): -31.4288
+// # Noise (dbm): -96.0167
+// # SNR (db): 64.5879
+// # tx beacons: 24
+// # tx CF-END: 4
+// # tx CF-END-ACK: 0
+// # tx CF-POLL: 896
+// # tx DATA-NULL-ANNOUNCEMENT: 0
+// # tx DATA-NULL: 860
+// # tx CSI-BEAMFORMING-REPORT: 0
+// # tx DATA: 18467
+// # tx CTS: 0
+// # tx CTS-to-self: 896
+// # average latency (bf): 0.00315256
+// # successful sensing: 4
+// # unsuccessfull sensing: 20
+
+
+// Packets received: 11910
+// Packets received: 4443
+// 4 Overal throughput from 802.11bf BSS: 52.7576 Mbit/s
+// # Signal (dbm): -31.1922
+// # Noise (dbm): -95.4765
+// # SNR (db): 64.2843
+// # tx beacons: 26
+// # tx CF-END: 4
+// # tx CF-END-ACK: 0
+// # tx CF-POLL: 3210
+// # tx DATA-NULL-ANNOUNCEMENT: 3167
+// # tx DATA-NULL: 3167
+// # tx CSI-BEAMFORMING-REPORT: 3167
+// # tx DATA: 16429
+// # tx CTS: 0
+// # tx CTS-to-self: 3210
+// # average latency (bf): 0.00134758
+// # successful sensing: 25
+// # unsuccessfull sensing: 0
+
     bool enableChannelSounding = true;    // Enable/disable channel sounding
     int channelWidth{20};                 // Bandwidth
     Time channelSoundingInterval{"5ms"};  // Channel sounding interval (Channel sounding is disabled
@@ -1302,7 +1344,7 @@ main(int argc, char* argv[])
     std::string codebookSizeSu = "(6,4)"; // Codebook size for SU channel sounding
     std::string codebookSizeMu = "(9,7)"; // Codebook size for MU channel sounding
     uint8_t nc = 2;           // Number of colums in the compressed beamforming feedback matrix
-    uint8_t SoundingType = 0; // Sounding type (0: SU, 1: SU+MU, 2: MU)
+    uint8_t SoundingType = 0; // Sounding type (0: SU, 1: SU+MU, 2: MU, 3: TF_Sounding)
 
     /*******************************************/
     // MU-OFDMA Setup in Physical Layer        //
@@ -1359,7 +1401,7 @@ main(int argc, char* argv[])
                  csMode);
     cmd.AddValue("seed", "Seed for random number generator", iseed);
     cmd.AddValue("radius", "Radius of the circle for the model distance", radius);
-    cmd.AddValue("soundingtype", "Sounding type (0: SU, 1: SU+MU, 2: MU)", SoundingType);
+    cmd.AddValue("soundingtype", "Sounding type (0: SU, 1: SU+MU, 2: MU, 3: TF_Sounding))", SoundingType);
     cmd.AddValue("frequency", "Frequency (2.4, 5, 6 GHz)", frequency);
     cmd.AddValue("nBss", "Number of BSS", nBss);
     cmd.AddValue("nAxBss", "Number of BSS for ax", nAxBss);
@@ -2302,7 +2344,7 @@ main(int argc, char* argv[])
     {
         /* Setting Applications for IEEE 802.11bf network*/
         // Stas are sending data to the AP so they are servers here
-        uint32_t portNumber = 9;
+        uint32_t portNumber = 5001;
         for (int i = 0; i < nBfBss; i++)
         {
             auto serverNodes = std::ref(allBss[i].wifiStaSensingNode);
@@ -2505,17 +2547,17 @@ main(int argc, char* argv[])
 
         if (enablePcap)
         {
-            if (multipleBss)
+            if (multipleBss) 
             {
                 // phy.EnablePcap("bf-wifi-network", allBss[nBfBss - 1].staDevices);
-                phy.EnablePcap("ax-wifi-network", allBss[nBfBss].staDevices_net2);
+                phy.EnablePcap("ax-wifi-network", allBss[nBfBss - 1 ].staDevices);
             }
             else
             {
-                // phy.EnablePcap("bf-wifi-network", apDevice);
-                // phy.EnablePcap("bf-wifi-network", apDevice_net2);
-                // phy.EnablePcap("bf-wifi-network", staDevices);
-                // phy.EnablePcap("bf-wifi-network", staDevices_net2);
+                // bare names (apDevice, staDevices) don't exist — they are struct members;
+                // use allBss[0].xxx or EnablePcapAll
+                phy.EnablePcap("bf-wifi-network-ap", allBss[0].apDevice);
+                phy.EnablePcap("bf-wifi-network-sta", allBss[0].staDevices);
                 // phy.EnablePcapAll("bf-wifi-network");
             }
         }
