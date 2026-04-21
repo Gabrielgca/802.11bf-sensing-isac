@@ -1186,27 +1186,17 @@ StaWifiMac::Receive(Ptr<const WifiMpdu> mpdu, uint8_t linkId)
         // duration would cause them to block unnecessarily.
         const auto& cfParamOpt = beacon.Get<CfParameterSet>();
 
-        if (!cfParamOpt.has_value())
+        if (cfParamOpt.has_value())
         {
-            // std::cout << "NO CF PARAMETER" << std::endl;
-            return; // no CF parameter set in this beacon
+            CfParameterSet cfParameterSet = *cfParamOpt;
+            if (GetPcfSupported() && cfParameterSet.GetCFPCount() == 0)
+            {
+                // see section 9.3.2.2 802.11-1999
+                GetChannelAccessManager(linkId)->NotifyNavStartNow(
+                    MicroSeconds(cfParameterSet.GetCFPMaxDurationUs()));
+            }
         }
-
-        CfParameterSet cfParameterSet = *cfParamOpt;
-        if (GetPcfSupported() && cfParameterSet.GetCFPCount() == 0)
-        {
-            // see section 9.3.2.2 802.11-1999
-            // std::cout << "stations with address " << GetAddress() << " received beacon with CFPCount=0 at " << Simulator::Now().GetSeconds()  << " seconds" << std::endl;
-            // std::cout << "cfParameterSet.GetCFPMaxDurationUs() : " << cfParameterSet.GetCFPMaxDurationUs() << std::endl;
-
-            GetChannelAccessManager(linkId)->NotifyNavStartNow(
-                MicroSeconds(cfParameterSet.GetCFPMaxDurationUs()));
-            // else
-            // {
-            //     GetChannelAccessManager(linkId)->NotifyNavStartNow(
-            //         MicroSeconds(cfParameterSet.GetCFPMaxDurationUs()));
-            // }
-        }
+        // If no CF parameter set, continue processing so ReceiveBeacon() is still called
     }
     Mac48Address myAddr = hdr->IsData() ? Mac48Address::ConvertFrom(GetDevice()->GetAddress())
                                         : GetFrameExchangeManager(linkId)->GetAddress();
