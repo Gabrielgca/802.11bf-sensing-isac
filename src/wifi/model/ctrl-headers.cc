@@ -1852,12 +1852,13 @@ CtrlTriggerHeader::Serialize(Buffer::Iterator start) const
     // 802.11bf Sensing Trigger Dependent Common Info (1 byte, only for SENSING_TRIGGER)
     if (m_triggerType == TriggerFrameType::SENSING_TRIGGER)
     {
-        // bit 0:   Sensing field (1 = Sensing Trigger variant)
-        // bits 1-4: Sensing Trigger Subtype (4 bits)
-        // bits 5-7: reserved (0)
-        uint8_t sensingCommonInfo = 0;
-        sensingCommonInfo |= (m_sensingField ? 0x01 : 0x00);
-        sensingCommonInfo |= (static_cast<uint8_t>(m_sensingSubtype) & 0x0f) << 1;
+        // bits 0-3: Sensing Trigger Subtype (4 bits) — Type=8 already implies sensing
+        // bits 4-7: reserved (0)
+        // Note: the "Sensing Field" is implicit from TriggerFrameType==SENSING_TRIGGER;
+        // it is NOT encoded as a separate bit here. Encoding it at bit 0 would shift the
+        // subtype to bits 1-4, causing Wireshark to decode SR2SI_SOUNDING (1) as
+        // SENSING_REPORTING (3).
+        uint8_t sensingCommonInfo = static_cast<uint8_t>(m_sensingSubtype) & 0x0f;
         i.WriteU8(sensingCommonInfo);
     }
 
@@ -1906,8 +1907,9 @@ CtrlTriggerHeader::Deserialize(Buffer::Iterator start)
     if (m_triggerType == TriggerFrameType::SENSING_TRIGGER)
     {
         uint8_t sensingCommonInfo = i.ReadU8();
-        m_sensingField   = (sensingCommonInfo & 0x01) != 0;
-        m_sensingSubtype = static_cast<SensingTriggerSubtype>((sensingCommonInfo >> 1) & 0x0f);
+        // Type=8 already implies sensing; subtype is in bits 0-3
+        m_sensingField   = true;
+        m_sensingSubtype = static_cast<SensingTriggerSubtype>(sensingCommonInfo & 0x0f);
     }
 
     while (i.GetRemainingSize() >= 2)
