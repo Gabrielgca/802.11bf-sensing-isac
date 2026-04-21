@@ -940,14 +940,17 @@ HeFrameExchangeManager::SendPsduMap()
     {
         CtrlTriggerHeader trigger;
         (*m_psduMap.begin()->second->begin())->GetPacket()->PeekHeader(trigger);
-        if (trigger.IsBfrp())
+        if (trigger.IsBfrp() ||
+            (trigger.IsSensing() && trigger.GetSensingField() &&
+             trigger.GetSensingSubtype() == SensingTriggerSubtype::SENSING_REPORTING))
         {
             m_trigVector = GetTrigVector(trigger);
             txVector = trigger.GetHeTbTxVector(trigger.begin()->GetAid12());
             responseTxVector = &txVector;
             timerType = WifiTxTimer::WAIT_BF_REPORT_AFTER_BFRP_TF;
         }
-        else if (trigger.IsSensing())
+        else if (trigger.IsSensing() && trigger.GetSensingField() &&
+                 trigger.GetSensingSubtype() == SensingTriggerSubtype::SR2SI_SOUNDING)
         {
             // 802.11bf Sensing Trigger (SR2SI): STAs respond with NDPs.
             // Reuse WAIT_BF_REPORT_AFTER_BFRP_TF timer so the existing
@@ -959,6 +962,8 @@ HeFrameExchangeManager::SendPsduMap()
             m_waitingForSensingNdp = true;
             std::cout << "SendPsduMap Set waiting for sensing NDP to true at " << Simulator::Now() << std::endl;
         }
+        // SENSING_POLLING (subtype=0): STAs respond with CTS-to-self in a TB PPDU.
+        // Falls through to the BSRP-like path below (WAIT_QOS_NULL_AFTER_BSRP_TF).
         /*
          * BSRP Trigger Frame
          */
@@ -1005,7 +1010,9 @@ HeFrameExchangeManager::SendPsduMap()
                 // std::cout << "trigger.IsBsrp(): " << trigger.IsBsrp() << std::endl;
                 CtrlTriggerHeader& trigger =
                     m_muScheduler->GetPollingMuInfo(m_linkId).triggerUlPoll;
-                NS_ASSERT(trigger.IsBsrp());
+                NS_ASSERT(trigger.IsBsrp() ||
+                          (trigger.IsSensing() && trigger.GetSensingField() &&
+                           trigger.GetSensingSubtype() == SensingTriggerSubtype::SENSING_POLLING));
                 NS_ASSERT(m_apMac);
 
                 // record the set of stations solicited by this Trigger Frame
@@ -3343,6 +3350,34 @@ HeFrameExchangeManager::ReceiveMpdu(Ptr<const WifiMpdu> mpdu,
                                     trigger,
                                     hdr);
             }
+            // 802.11bf Sensing Polling (subtype=0): respond with CTS-to-self in TB PPDU
+            else if (trigger.IsSensing() &&
+                     trigger.GetSensingField() &&
+                     trigger.GetSensingSubtype() == SensingTriggerSubtype::SENSING_POLLING)
+            {
+                NS_LOG_INFO("Received Sensing Polling TF from " << hdr.GetAddr2());
+                if (m_staMac->IsInCfp() && m_Polling_Receive_mutex)
+                {
+                    Simulator::Schedule(m_phy->GetSifs(),
+                                        &HeFrameExchangeManager::ReceivePollingFrame,
+                                        this,
+                                        trigger,
+                                        hdr);
+                    m_Polling_Receive_mutex = 0;
+                }
+            }
+            // 802.11bf Sensing Reporting (subtype=3): respond with beamforming report
+            else if (trigger.IsSensing() &&
+                     trigger.GetSensingField() &&
+                     trigger.GetSensingSubtype() == SensingTriggerSubtype::SENSING_REPORTING)
+            {
+                NS_LOG_INFO("Received Sensing Reporting TF from " << hdr.GetAddr2());
+                Simulator::Schedule(m_phy->GetSifs(),
+                                    &HeFrameExchangeManager::ReceiveBfrpTrigger,
+                                    this,
+                                    trigger,
+                                    hdr);
+            }
         }
         // attempt to add channel sounding from ns3.37 : add condition if recevied frame NDPA
         else if (hdr.IsNdpa() && m_csBeamformee != nullptr)
@@ -3557,7 +3592,7 @@ HeFrameExchangeManager::ReceiveBfrpTrigger(const CtrlTriggerHeader& trigger,
                                            const WifiMacHeader& hdr)
 {
     NS_LOG_FUNCTION(this << trigger << hdr);
-    NS_ASSERT(trigger.IsBfrp() && m_csBeamformee != nullptr);
+    NS_ASSERT((trigger.IsBfrp() || trigger.IsSensing()) && m_csBeamformee != nullptr);
 
     NS_LOG_DEBUG("Received a BFRP Trigger Frame soliciting CSI feedback");
     NS_LOG_INFO("Received a BFRP Trigger Frame soliciting CSI feedback");

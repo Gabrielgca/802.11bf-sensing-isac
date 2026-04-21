@@ -1365,7 +1365,9 @@ RrMultiUserScheduler::TryChannelSounding(void)
                              csMode.GetMcsValue(),
                              1});
                         bfTfCtrlHeader =
-                            CtrlTriggerHeader(TriggerFrameType::BFRP_TRIGGER, txVector);
+                            CtrlTriggerHeader(TriggerFrameType::SENSING_TRIGGER, txVector);
+                        bfTfCtrlHeader.SetSensingField(true);
+                        bfTfCtrlHeader.SetSensingSubtype(SensingTriggerSubtype::SENSING_REPORTING);
                         // std::cout << "TryChannelSounding: selected stations for BFRP Trigger Frame: " << std::endl;
                         mpduTf = GetTriggerFrame(bfTfCtrlHeader, m_linkId);
                         txParamsSendTf = txParamsCtrlFrame;
@@ -1866,9 +1868,11 @@ RrMultiUserScheduler::TryPollingPhase11bf()
                  modetxParamsPollingFrame.GetMcsValue(),
                  ctsTxVector.GetNss()});
 
-            // Get the trigger header frame
+            // Get the trigger header frame (802.11bf Sensing TF, Subtype=0: Sensing Polling)
             pollTfCtrlHeader =
-                CtrlTriggerHeader(TriggerFrameType::BSRP_TRIGGER, txParamsSendTf.m_txVector);
+                CtrlTriggerHeader(TriggerFrameType::SENSING_TRIGGER, txParamsSendTf.m_txVector);
+            pollTfCtrlHeader.SetSensingField(true);
+            pollTfCtrlHeader.SetSensingSubtype(SensingTriggerSubtype::SENSING_POLLING);
             mpduTf = GetTriggerFrame(pollTfCtrlHeader, m_linkId);
 
             pollingStaIt++;
@@ -1902,8 +1906,11 @@ RrMultiUserScheduler::TryPollingPhase11bf()
         m_macHdrTriggerUlPoll = hdrPollTrigger;
         m_txParamsTriggerUlPoll = txParamsSendTf;
 
+        // 802.11bf Sensing TF, Subtype=0: Sensing Polling
         m_triggerUlPoll =
-            CtrlTriggerHeader(TriggerFrameType::BSRP_TRIGGER, txParamsSendTf.m_txVector);
+            CtrlTriggerHeader(TriggerFrameType::SENSING_TRIGGER, txParamsSendTf.m_txVector);
+        m_triggerUlPoll.SetSensingField(true);
+        m_triggerUlPoll.SetSensingSubtype(SensingTriggerSubtype::SENSING_POLLING);
         txVector.SetGuardInterval(m_trigger.GetGuardInterval());
 
         auto item = GetTriggerFrame(m_triggerUlPoll, m_linkId);
@@ -2298,7 +2305,10 @@ RrMultiUserScheduler::TryNDPASoundingPhase11bf(void)
                 {(nCentral26TonesRus == 0 ? *ruSetIt++ : *central26TonesRusIt++),
                  csMode.GetMcsValue(),
                  1});
-            bfTfCtrlHeader = CtrlTriggerHeader(TriggerFrameType::BFRP_TRIGGER, txVector);
+            // 802.11bf Sensing TF, Subtype=3: Sensing Reporting
+            bfTfCtrlHeader = CtrlTriggerHeader(TriggerFrameType::SENSING_TRIGGER, txVector);
+            bfTfCtrlHeader.SetSensingField(true);
+            bfTfCtrlHeader.SetSensingSubtype(SensingTriggerSubtype::SENSING_REPORTING);
             mpduTf = GetTriggerFrame(bfTfCtrlHeader, m_linkId);
             txParamsSendTf = txParamsCtrlFrame;
             if (!GetHeFem(m_linkId)->TryAddMpdu(mpduTf, txParamsSendTf, actualAvailableTime))
