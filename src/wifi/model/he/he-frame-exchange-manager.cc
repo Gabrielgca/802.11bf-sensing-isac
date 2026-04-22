@@ -354,7 +354,7 @@ HeFrameExchangeManager::StartFrameExchange(Ptr<QosTxop> edca, Time availableTime
 
         delay += m_apMac->GetWifiPhy()->GetSifs();
         Simulator::Schedule(delay,
-                            &HeFrameExchangeManager::SendPsduMapWithProtection,
+                            &HeFrameExchangeManager::SendPollTriggerIfInCfp,
                             this,
                             m_psduMap,
                             m_txParams);
@@ -2771,6 +2771,19 @@ HeFrameExchangeManager::ReceiveMpdu(Ptr<const WifiMpdu> mpdu,
                                             m_apMac->GetCfpMaxDuration(),
                                             false);
                     }
+                    else if (m_muScheduler->HasMoreSensingPhases())
+                    {
+                        // Stay in the same CFP round: the configured sensing
+                        // phase sequence has more phases to run. Retain channel
+                        // access (no EndTxNoAck / NotifyChannelReleasedForPCF)
+                        // and chain the next phase after SIFS.
+                        Simulator::Schedule(m_phy->GetSifs(),
+                                            &HeFrameExchangeManager::StartFrameExchange,
+                                            this,
+                                            m_edca,
+                                            m_apMac->GetCfpMaxDuration(),
+                                            false);
+                    }
                     //Reporting phase
                     else
                     {
@@ -2823,15 +2836,30 @@ HeFrameExchangeManager::ReceiveMpdu(Ptr<const WifiMpdu> mpdu,
 
                 if (m_apMac->IsInCfp())
                 {
-                    m_apMac->GetWifiPhy()->NotifyMonitorChannelAccess(GetAddress(),
-                                                                      Simulator::Now(),
-                                                                      true);
-                    m_psduMap.clear();
-                    m_edca->EndTxNoAck(m_linkId);
-                    m_edca->NotifyChannelReleasedForPCF(0U);
-                    ResetSensingTimeout();
-                    m_apMac->EndSensingMeasurementExchange();
-                    m_edca = nullptr;
+                    if (m_muScheduler->HasMoreSensingPhases())
+                    {
+                        // Stay in the same CFP round: more phases remain in
+                        // the configured sensing sequence. Retain channel
+                        // access and chain the next phase after SIFS.
+                        Simulator::Schedule(m_phy->GetSifs(),
+                                            &HeFrameExchangeManager::StartFrameExchange,
+                                            this,
+                                            m_edca,
+                                            m_apMac->GetCfpMaxDuration(),
+                                            false);
+                    }
+                    else
+                    {
+                        m_apMac->GetWifiPhy()->NotifyMonitorChannelAccess(GetAddress(),
+                                                                          Simulator::Now(),
+                                                                          true);
+                        m_psduMap.clear();
+                        m_edca->EndTxNoAck(m_linkId);
+                        m_edca->NotifyChannelReleasedForPCF(0U);
+                        ResetSensingTimeout();
+                        m_apMac->EndSensingMeasurementExchange();
+                        m_edca = nullptr;
+                    }
                 }
                 else
                 {
@@ -3742,6 +3770,20 @@ HeFrameExchangeManager::SendCsFramesFromBeamformer()
                      m_csBeamformer->GetBeamformerFrameInfo().m_txParamsBfrpTrigger.m_txVector)}},
             m_csBeamformer->GetBeamformerFrameInfo().m_txParamsBfrpTrigger);
     }
+}
+
+void
+HeFrameExchangeManager::SendPollTriggerIfInCfp(WifiPsduMap psduMap, WifiTxParameters txParams)
+{
+    // Discard the deferred UL-poll trigger if the CFP ended before this
+    // callback fired. Without this guard, a BF_POLL_DL_TX trigger that
+    // outlives its CFP calls GetUlMuInfo() in SendPsduMap() and aborts
+    // because lastTxFormat is no longer UL_MU_TX.
+    if (!m_apMac || !m_apMac->IsInCfp())
+    {
+        return;
+    }
+    SendPsduMapWithProtection(std::move(psduMap), txParams);
 }
 
 void

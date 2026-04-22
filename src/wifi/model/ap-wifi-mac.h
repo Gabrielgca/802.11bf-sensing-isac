@@ -27,6 +27,7 @@
 
 #include <unordered_map>
 #include <variant>
+#include <vector>
 
 namespace ns3
 {
@@ -53,6 +54,22 @@ class MgtEmlOmn;
 /// variant holding a  reference to a (Re)Association Request
 using AssocReqRefVariant = std::variant<std::reference_wrapper<MgtAssocRequestHeader>,
                                         std::reference_wrapper<MgtReassocRequestHeader>>;
+
+/**
+ * \brief Enumeration of the 802.11bf sensing message exchange phases.
+ *
+ * The AP holds an ordered sequence of these values that drives the sensing
+ * phase state machine. The same phase may appear multiple times in a
+ * sequence (e.g. POLLING, TF_SOUNDING, TF_SOUNDING). REPORT is not a
+ * distinct TxFormat — it is carried inside the other phases.
+ */
+enum class SensingPhase : uint8_t
+{
+    POLLING = 0,
+    NDPA_SOUNDING = 1,
+    TF_SOUNDING = 2,
+    REPORT = 3
+};
 
 /**
  * \brief Wi-Fi AP state machine
@@ -289,6 +306,27 @@ class ApWifiMac : public InfrastructureWifiMac
     std::pair<uint16_t, uint16_t> m_SensingCw; //!< Sensing Cw based on priority
     u_int16_t m_SensingPriority;               //!< Sensing priority
     u_int64_t m_sensingIntervalType = 0;           //!< Sensing interval type
+
+    /**
+     * Set the ordered sequence of 802.11bf sensing message exchange phases
+     * that the scheduler will perform in each sensing burst.
+     */
+    void SetSensingPhaseSequence(const std::vector<SensingPhase>& sequence);
+    /**
+     * Get the ordered sequence of 802.11bf sensing message exchange phases.
+     */
+    const std::vector<SensingPhase>& GetSensingPhaseSequence(void) const;
+    /**
+     * String form of SetSensingPhaseSequence for the ns-3 attribute system.
+     * Accepts comma-separated tokens from the set
+     * {POLLING, NDPA_SOUNDING, TF_SOUNDING, REPORT}.
+     */
+    void SetSensingPhaseSequenceString(std::string sequence);
+    /**
+     * String form of GetSensingPhaseSequence for the ns-3 attribute system.
+     */
+    std::string GetSensingPhaseSequenceString(void) const;
+    std::vector<SensingPhase> m_sensingPhaseSequence; //!< Ordered sensing phases
 
   protected:
     /**

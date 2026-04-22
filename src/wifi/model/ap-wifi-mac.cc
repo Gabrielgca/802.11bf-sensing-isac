@@ -135,7 +135,16 @@ ApWifiMac::GetTypeId()
                 "This integer attribute is set to determine the type of sensing interval",
                 UintegerValue(0),
                 MakeUintegerAccessor(&ApWifiMac::SetSensingIntervalType, &ApWifiMac::GetSensingIntervalType),
-                MakeUintegerChecker<uint16_t>());
+                MakeUintegerChecker<uint16_t>())
+            .AddAttribute(
+                "SensingPhaseSequence",
+                "Ordered comma-separated list of 802.11bf sensing phases to run in each "
+                "sensing burst. Accepted tokens: POLLING, NDPA_SOUNDING, TF_SOUNDING, REPORT. "
+                "The sequence may repeat phases (e.g. \"POLLING,TF_SOUNDING,TF_SOUNDING\").",
+                StringValue("POLLING,TF_SOUNDING"),
+                MakeStringAccessor(&ApWifiMac::SetSensingPhaseSequenceString,
+                                   &ApWifiMac::GetSensingPhaseSequenceString),
+                MakeStringChecker());
     return tid;
 }
 
@@ -3202,6 +3211,97 @@ std::pair<uint16_t, uint16_t>
 ApWifiMac::GetSensingPriority(void) const
 {
     return m_SensingCw;
+}
+
+void
+ApWifiMac::SetSensingPhaseSequence(const std::vector<SensingPhase>& sequence)
+{
+    NS_LOG_FUNCTION(this);
+    NS_ABORT_MSG_IF(sequence.empty(), "SensingPhaseSequence must contain at least one phase");
+    m_sensingPhaseSequence = sequence;
+}
+
+const std::vector<SensingPhase>&
+ApWifiMac::GetSensingPhaseSequence(void) const
+{
+    return m_sensingPhaseSequence;
+}
+
+void
+ApWifiMac::SetSensingPhaseSequenceString(std::string sequence)
+{
+    NS_LOG_FUNCTION(this << sequence);
+    std::vector<SensingPhase> parsed;
+    std::string token;
+    auto commit = [&](std::string t) {
+        // trim whitespace
+        size_t b = t.find_first_not_of(" \t");
+        size_t e = t.find_last_not_of(" \t");
+        if (b == std::string::npos)
+        {
+            return;
+        }
+        t = t.substr(b, e - b + 1);
+        if (t == "POLLING")
+        {
+            parsed.push_back(SensingPhase::POLLING);
+        }
+        else if (t == "NDPA_SOUNDING")
+        {
+            parsed.push_back(SensingPhase::NDPA_SOUNDING);
+        }
+        else if (t == "TF_SOUNDING")
+        {
+            parsed.push_back(SensingPhase::TF_SOUNDING);
+        }
+        else if (t == "REPORT")
+        {
+            parsed.push_back(SensingPhase::REPORT);
+        }
+        else
+        {
+            NS_ABORT_MSG("Unknown sensing phase token: \"" << t << "\"");
+        }
+    };
+    size_t start = 0;
+    for (size_t i = 0; i <= sequence.size(); ++i)
+    {
+        if (i == sequence.size() || sequence[i] == ',')
+        {
+            commit(sequence.substr(start, i - start));
+            start = i + 1;
+        }
+    }
+    SetSensingPhaseSequence(parsed);
+}
+
+std::string
+ApWifiMac::GetSensingPhaseSequenceString(void) const
+{
+    std::string out;
+    for (size_t i = 0; i < m_sensingPhaseSequence.size(); ++i)
+    {
+        if (i > 0)
+        {
+            out += ",";
+        }
+        switch (m_sensingPhaseSequence[i])
+        {
+        case SensingPhase::POLLING:
+            out += "POLLING";
+            break;
+        case SensingPhase::NDPA_SOUNDING:
+            out += "NDPA_SOUNDING";
+            break;
+        case SensingPhase::TF_SOUNDING:
+            out += "TF_SOUNDING";
+            break;
+        case SensingPhase::REPORT:
+            out += "REPORT";
+            break;
+        }
+    }
+    return out;
 }
 
 /*

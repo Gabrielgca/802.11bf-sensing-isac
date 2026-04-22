@@ -62,6 +62,7 @@ class RrMultiUserScheduler : public MultiUserScheduler
     bool DoSUNDPASoundingStation() override;
     size_t GetPollingCandidatesSize() override;
     ns3::MultiUserScheduler::SoundingType GetSoundingType() override;
+    bool HasMoreSensingPhases() override;
 
   protected:
     void DoDispose() override;
@@ -241,6 +242,7 @@ class RrMultiUserScheduler : public MultiUserScheduler
     virtual TxFormat TryTFSoundingPhase11bf();
 
     SoundingType m_soundingType = SoundingType::MU_only; //!< Type of sounding to perform
+    size_t m_sensingPhaseIdx = 0; //!< Next phase index in the AP's SensingPhaseSequence
     std::list<CandidateInfo> m_candidatesCs;     //!< Candidate stations for channel sounding
     std::list<CandidateInfo> m_candidatesCsSU; //!< Candidate stations for SU transmission channel sounding
     std::list<CandidateInfo>::iterator

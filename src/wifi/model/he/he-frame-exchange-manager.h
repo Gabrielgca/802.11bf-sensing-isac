@@ -475,6 +475,7 @@ class HeFrameExchangeManager : public VhtFrameExchangeManager
 
     void ReceiveSensingTrigger(const CtrlTriggerHeader& trigger, const WifiMacHeader& hdr); // Receive 802.11bf SR2SI Sensing Trigger Frame
     void SendTFSoundingFrame();   ///< Send 802.11bf SR2SI Sensing Trigger Frame
+    void SendPollTriggerIfInCfp(WifiPsduMap psduMap, WifiTxParameters txParams);
     bool m_waitingForSensingNdp;  ///< True while AP awaits NDP responses to a Sensing TF
     // Time remainingTxopForSensing = m_apMac->GetRemainingCfpDuration();
 };

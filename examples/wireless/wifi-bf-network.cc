@@ -1269,7 +1269,7 @@ main(int argc, char* argv[])
     nAxBss = 0;
     nStations = 1;
     nStations_net2 = 1;
-    bool enablePcap = false;
+    bool enablePcap = true;
     bool enableWiFiSensing = true;
     multipleBss = true;
     bool downlink{true};
@@ -1344,7 +1344,12 @@ main(int argc, char* argv[])
     std::string codebookSizeSu = "(6,4)"; // Codebook size for SU channel sounding
     std::string codebookSizeMu = "(9,7)"; // Codebook size for MU channel sounding
     uint8_t nc = 2;           // Number of colums in the compressed beamforming feedback matrix
-    uint8_t SoundingType = 0; // Sounding type (0: SU, 1: SU+MU, 2: MU, 3: TF_Sounding)
+    uint8_t SoundingType = 3; // Sounding type (0: SU, 1: SU+MU, 2: MU, 3: TF_Sounding)
+    // Ordered 802.11bf sensing phases to run per sensing burst. Accepted tokens:
+    // POLLING, NDPA_SOUNDING, TF_SOUNDING, REPORT. Phases may repeat.
+    // Examples: "POLLING,TF_SOUNDING", "POLLING,NDPA_SOUNDING,REPORT",
+    //           "POLLING,NDPA_SOUNDING,TF_SOUNDING,REPORT".
+    std::string sensingPhaseSequence = "POLLING,NDPA_SOUNDING,TF_SOUNDING";
 
     /*******************************************/
     // MU-OFDMA Setup in Physical Layer        //
@@ -1402,6 +1407,11 @@ main(int argc, char* argv[])
     cmd.AddValue("seed", "Seed for random number generator", iseed);
     cmd.AddValue("radius", "Radius of the circle for the model distance", radius);
     cmd.AddValue("soundingtype", "Sounding type (0: SU, 1: SU+MU, 2: MU, 3: TF_Sounding))", SoundingType);
+    cmd.AddValue("sensingPhaseSequence",
+                 "Comma-separated ordered 802.11bf sensing phases per burst. "
+                 "Tokens: POLLING, NDPA_SOUNDING, TF_SOUNDING, REPORT "
+                 "(e.g. \"POLLING,TF_SOUNDING\" or \"POLLING,NDPA_SOUNDING,TF_SOUNDING,REPORT\").",
+                 sensingPhaseSequence);
     cmd.AddValue("frequency", "Frequency (2.4, 5, 6 GHz)", frequency);
     cmd.AddValue("nBss", "Number of BSS", nBss);
     cmd.AddValue("nAxBss", "Number of BSS for ax", nAxBss);
@@ -1581,7 +1591,9 @@ main(int argc, char* argv[])
                               "SensingInterval",
                               TimeValue(MilliSeconds(sensingInterval)),
                               "SensingIntervalType",
-                              UintegerValue(sensingIntervalType));
+                              UintegerValue(sensingIntervalType),
+                              "SensingPhaseSequence",
+                              StringValue(sensingPhaseSequence));
 
                 macAp.SetMultiUserScheduler("ns3::RrMultiUserScheduler",
                                             "ChannelSoundingInterval",
@@ -1670,7 +1682,9 @@ main(int argc, char* argv[])
                           "SensingInterval",
                           TimeValue(MilliSeconds(sensingInterval)),
                           "SensingIntervalType",
-                          UintegerValue(sensingIntervalType));
+                          UintegerValue(sensingIntervalType),
+                          "SensingPhaseSequence",
+                          StringValue(sensingPhaseSequence));
 
             macAp.SetMultiUserScheduler("ns3::RrMultiUserScheduler",
                                         "ChannelSoundingInterval",

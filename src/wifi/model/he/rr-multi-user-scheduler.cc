@@ -227,54 +227,71 @@ RrMultiUserScheduler::SelectTxFormat()
     // if (mpdu)
     if (IsPCFEnabled() && m_enableMuMimo)
     {
-        // attempt to modify MU-MIMO for 11bf : add new TxFormat selector for Polling phase
+        // 802.11bf sensing message exchange: the AP holds an ordered sequence
+        // of SensingPhase values. The scheduler walks that sequence, dispatching
+        // one phase per SelectTxFormat() call while a CF-Poll MPDU is at the
+        // head of the queue. The sequence resets at the start of each CFP.
         if (mpdu && mpdu->GetHeader().IsCfPoll())
-        // if (mpdu)
         {
             if (IsChannelSoundingEnabled())
             {
-                std::cout << "m_soundingType: " << static_cast<int>(m_soundingType) << std::endl;
-                if (m_soundingType == SU_only)
+                const auto& seq = m_apMac->GetSensingPhaseSequence();
+                NS_ABORT_MSG_IF(seq.empty(),
+                                "AP SensingPhaseSequence must contain at least one phase");
+
+                const TxFormat lastFmt = GetLastTxFormat(0U);
+
+                // Decide whether to advance the phase index or stay put.
+                // "Stay" only applies to SU NDPA sounding that needs another
+                // iteration (m_nextSUSounding). Anything else either advances
+                // the index (phase just finished) or resets to 0 (new cycle).
+                bool startingNewCycle = (lastFmt != BF_POLL_DL_TX &&
+                                         lastFmt != BF_NDPA_SOUNDING_TX &&
+                                         lastFmt != BF_NDPA_SOUNDING_TX_SU &&
+                                         lastFmt != BF_TF_SOUNDING_TX);
+
+                if (startingNewCycle)
                 {
-                    if (GetLastTxFormat(0U) == BF_POLL_DL_TX)
-                    {
-                        return TryNDPASoundingPhase11bf();
-                    }
-                    else if (GetLastTxFormat(0U) == BF_NDPA_SOUNDING_TX_SU)
-                    {
-                        if (m_nextSUSounding)
-                        {
-                            TxFormat txFormat = TryNDPASoundingPhase11bf();
-                            return txFormat;
-                        }
-                        else
-                        {
-                            TxFormat txFormat = TryPollingPhase11bf();
-                            return txFormat;
-                        }
-                    }
+                    m_sensingPhaseIdx = 0;
                 }
-                else if (m_soundingType == TF_sounding)
+                else if (lastFmt == BF_NDPA_SOUNDING_TX_SU && m_nextSUSounding)
                 {
-                    // TF Sounding (SR2SI): after polling, AP sends Sensing Trigger Frame
-                    // STAs respond with NDPs directly to the AP
-                    std::cout << " GetLastTxFormat(0U) : " << GetLastTxFormat(0U) << std::endl;
-                    if (GetLastTxFormat(0U) == BF_POLL_DL_TX)
-                    {
-                        std::cout << "TF Sounding: TryTFSoundingPhase11bf() because last TxFormat was BF_POLL_DL_TX" << std::endl;
-                        std::cout << "TryTFSoundingPhase11bf " << TryTFSoundingPhase11bf() << std::endl;
-                        return TryTFSoundingPhase11bf();
-                    }
+                    // keep the same index: the SU NDPA phase continues
                 }
-                else if (GetLastTxFormat(0U) == BF_POLL_DL_TX)
+                else
                 {
-                    std::cout << "TryNDPASoundingPhase11bf() because last TxFormat was BF_POLL_DL_TX" << std::endl;
-                    TxFormat txFormat = TryNDPASoundingPhase11bf();
-                    return txFormat;
+                    m_sensingPhaseIdx = (m_sensingPhaseIdx + 1) % seq.size();
+                }
+
+                // Skip REPORT entries: they are implicit in response handling.
+                // Use modulo so we wrap around and never stall after a REPORT
+                // that appears at the tail of the sequence.
+                size_t safety = 0;
+                while (seq[m_sensingPhaseIdx] == SensingPhase::REPORT &&
+                       safety++ < seq.size())
+                {
+                    m_sensingPhaseIdx = (m_sensingPhaseIdx + 1) % seq.size();
+                }
+
+                if (seq[m_sensingPhaseIdx] == SensingPhase::REPORT)
+                {
+                    // Every entry in the sequence is REPORT; nothing to dispatch.
+                    return NO_TX;
+                }
+
+                switch (seq[m_sensingPhaseIdx])
+                {
+                case SensingPhase::POLLING:
+                    return TryPollingPhase11bf();
+                case SensingPhase::NDPA_SOUNDING:
+                    return TryNDPASoundingPhase11bf();
+                case SensingPhase::TF_SOUNDING:
+                    return TryTFSoundingPhase11bf();
+                case SensingPhase::REPORT:
+                    return NO_TX;
                 }
             }
             TxFormat txFormat = TryPollingPhase11bf();
-            // std::cout << "txFormat returned by TryPollingPhase11bf() : " << txFormat << std::endl;
             return txFormat;
         }
     }
@@ -2515,6 +2532,33 @@ size_t
 RrMultiUserScheduler::GetPollingCandidatesSize()
 {
     return m_candidatesPoll.size();
+}
+
+bool
+RrMultiUserScheduler::HasMoreSensingPhases()
+{
+    if (!m_apMac)
+    {
+        return false;
+    }
+    const auto& seq = m_apMac->GetSensingPhaseSequence();
+    if (seq.empty() || m_sensingPhaseIdx >= seq.size())
+    {
+        return false;
+    }
+    // If we are still mid-SU-NDPA sweep, we owe another NDPA at the same index.
+    if (seq[m_sensingPhaseIdx] == SensingPhase::NDPA_SOUNDING && m_nextSUSounding)
+    {
+        return true;
+    }
+    for (size_t i = m_sensingPhaseIdx + 1; i < seq.size(); ++i)
+    {
+        if (seq[i] != SensingPhase::REPORT)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 MultiUserScheduler::TxFormat

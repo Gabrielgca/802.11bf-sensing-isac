@@ -182,6 +182,12 @@ class MultiUserScheduler : public Object
     virtual bool DoSUNDPASoundingStation() = 0;
     virtual ns3::MultiUserScheduler::SoundingType GetSoundingType() = 0;
     virtual size_t GetPollingCandidatesSize() = 0;
+    /**
+     * Whether the current 802.11bf sensing burst has more phases left to run
+     * after the one just completed. Used by the HE Frame Exchange Manager to
+     * decide between chaining another phase and ending the round.
+     */
+    virtual bool HasMoreSensingPhases() { return false; }
     bool m_nextSUSounding = 0; //!< Indicates next SU Sounding is still required>
     void SensingTimeout();
 
