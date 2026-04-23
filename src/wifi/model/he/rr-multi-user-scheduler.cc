@@ -201,7 +201,7 @@ RrMultiUserScheduler::SelectTxFormat()
         if (mpdu)
         {
             const WifiMacHeader& hdr = mpdu->GetHeader();
-            bool isSensingFrame = hdr.IsCfPoll()           // WIFI_MAC_QOSDATA_CFPOLL
+            bool isSensingFrame = hdr.IsCfPoll()           // WIFI_MAC_QOSDATA_NULL_CFPOLL
                             || hdr.IsTrigger()        // WIFI_MAC_CTL_TRIGGER
                             || hdr.IsCts()               // WIFI_MAC_CTS
                             || hdr.IsNdpa()              // WIFI_MAC_CTL_NDPA
@@ -1605,7 +1605,7 @@ RrMultiUserScheduler::TryPollingPhase11bf()
     //  Polling Frame header --------------------------------------------------
     WifiMacHeader pollingFrame;
     Ptr<Packet> packetPollingFrame = Create<Packet>();
-    pollingFrame.SetType(WIFI_MAC_QOSDATA_CFPOLL);
+    pollingFrame.SetType(WIFI_MAC_QOSDATA_NULL_CFPOLL);
     pollingFrame.SetNoRetry();
     pollingFrame.SetAddr2(m_apMac->GetAddress());
     pollingFrame.SetDsNotTo();
@@ -1725,29 +1725,33 @@ RrMultiUserScheduler::TryPollingPhase11bf()
                 GetWifiRemoteStationManager(m_linkId)->GetDataTxVector(mpdu->GetHeader(),
                                                                        m_allowedWidth);
 
-            WifiTxVector txVectorCopy = txParamsPollingFrame.m_txVector;
-            txParamsPollingFrame.m_txVector.SetPreambleType(WIFI_PREAMBLE_HE_MU);
-            txParamsPollingFrame.m_txVector.SetHeMuUserInfo(
-                staIt->aid,
-                {{currRuType, 1, true},
-                 suTxVector.GetMode().GetMcsValue(),
-                 m_apMac->GetWifiPhy()->GetNumberOfAntennas()});
-
-            txParamsPollingFrame.m_acknowledgment =
+            // Duration check: use a fresh SU-only params copy so TryAddMpdu avoids
+            // the DL-MU ack manager, which requires Block Ack agreements that
+            // CF-Poll frames never establish.
+            WifiTxParameters txParamsSuCheck;
+            txParamsSuCheck.m_txVector = suTxVector;
+            txParamsSuCheck.m_acknowledgment =
                 std::unique_ptr<WifiAcknowledgment>(new WifiNoAck());
-            txParamsPollingFrame.m_protection =
+            txParamsSuCheck.m_protection =
                 std::unique_ptr<WifiProtection>(new WifiNoProtection());
-            mpdu->GetHeader().SetQosTid( wifiAcList.find(m_edca->GetAccessCategory())->first);
-            if (!GetHeFem(m_linkId)->TryAddMpdu(mpdu, txParamsPollingFrame, actualAvailableTime))
+
+            mpdu->GetHeader().SetQosTid(wifiAcList.find(m_edca->GetAccessCategory())->first);
+            if (!GetHeFem(m_linkId)->TryAddMpdu(mpdu, txParamsSuCheck, actualAvailableTime))
             {
                 NS_LOG_DEBUG("Adding the peeked frame violates the time constraints");
-                txParamsPollingFrame.m_txVector = txVectorCopy;
             }
             else
             {
-                // the frame meets the constraints
+                // Duration check passed — add this station to the HE_MU polling frame.
                 NS_LOG_DEBUG("Adding candidate STA (MAC=" << staIt->address
                                                           << ", AID=" << staIt->aid);
+                txParamsPollingFrame.m_txVector.SetPreambleType(WIFI_PREAMBLE_HE_MU);
+                txParamsPollingFrame.m_txVector.SetHeMuUserInfo(
+                    staIt->aid,
+                    {{currRuType, 1, true},
+                     suTxVector.GetMode().GetMcsValue(),
+                     m_apMac->GetWifiPhy()->GetNumberOfAntennas()});
+                txParamsPollingFrame.m_txDuration = txParamsSuCheck.m_txDuration;
                 m_candidatesPoll.emplace_back(staIt, mpdu);
             }
         }
@@ -2497,29 +2501,19 @@ bool
 RrMultiUserScheduler::DoSUNDPASoundingStation()
 {
     m_candidatesCs.clear();
-    if (m_currentCsSUCandidate == m_candidatesCsSU.begin())
+    if (m_currentCsSUCandidate == m_candidatesCsSU.end())
     {
-        m_candidatesCs.emplace_back(m_currentCsSUCandidate->first,
-                                    m_currentCsSUCandidate->second);
-        m_currentCsSUCandidate++;
-        m_nextSUSounding = true;
-        return true;
-    }
-    else if (m_currentCsSUCandidate != m_candidatesCsSU.end())
-    {
-        m_candidatesCs.emplace_back(m_currentCsSUCandidate->first,
-                                    m_currentCsSUCandidate->second);
-        m_currentCsSUCandidate++;
-        m_nextSUSounding = true;
-        return true;
-    }
-    else
-    {
-        m_candidatesCs.emplace_back(m_currentCsSUCandidate->first,
-                                    m_currentCsSUCandidate->second);
+        // All SU candidates have been served; leave m_candidatesCs empty so that
+        // the subsequent TF_SOUNDING phase (if any) can rebuild from m_candidatesPoll.
         m_nextSUSounding = false;
         return false;
     }
+    m_candidatesCs.emplace_back(m_currentCsSUCandidate->first,
+                                m_currentCsSUCandidate->second);
+    ++m_currentCsSUCandidate;
+    // More SU iterations are needed only if there is another station after this one.
+    m_nextSUSounding = (m_currentCsSUCandidate != m_candidatesCsSU.end());
+    return m_nextSUSounding;
 }
 
 ns3::MultiUserScheduler::SoundingType
@@ -2680,7 +2674,12 @@ RrMultiUserScheduler::TryTFSoundingPhase11bf()
     GetHeFem(m_linkId)->GetCsBeamformer()->SetBeamformerFrames(mpduTf, "SensingTF");
     GetHeFem(m_linkId)->GetCsBeamformer()->SetTxParameters(txParamsTf, "Trigger");
 
-    // Register which STAs are expected to send an NDP
+    // Register which STAs are expected to send an NDP.
+    // Clear any channel info accumulated by a prior NDPA_SOUNDING phase so that
+    // CheckAllChannelInfoReceived() waits for all fresh TF-sounding NDPs instead
+    // of returning immediately because the map is already fully populated.
+    GetHeFem(m_linkId)->GetCsBeamformer()->ClearChannelInfo();
+
     std::list<Mac48Address> staMacAddrList;
     for (auto& candidate : m_candidatesCs)
     {
