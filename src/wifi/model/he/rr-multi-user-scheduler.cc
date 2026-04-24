@@ -2101,6 +2101,11 @@ RrMultiUserScheduler::TryNDPASoundingPhase11bf(void)
 {
     NS_LOG_FUNCTION(this);
     m_candidatesReport.clear();
+    // Clear any channel info accumulated by a prior NDPA_SOUNDING phase so that
+    // CheckAllChannelInfoReceived() waits for all fresh BFR responses instead of
+    // returning immediately because the map is already fully populated from the
+    // previous round.  TryTFSoundingPhase11bf does the same thing for analogous reasons.
+    GetHeFem(m_linkId)->GetCsBeamformer()->ClearChannelInfo();
     Ptr<HeConfiguration> heConfiguration = m_apMac->GetHeConfiguration();
     NS_ASSERT(heConfiguration != 0);
 
