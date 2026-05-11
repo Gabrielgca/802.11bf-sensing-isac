@@ -2689,8 +2689,15 @@ ApWifiMac::SendNextCfFrame(uint8_t linkId)
 
     if (remaining.IsStrictlyPositive() && !m_cfPollingList.empty())
     {
-        // There is time left and there are STAs to poll: send next CF-Poll.
-        StartSensingMeasurementExchange(linkId);
+        // Guard: only start a new exchange if the sensing Txop is idle.
+        // m_pcfCallback fires for every received MPDU, so without this check
+        // rapid-fire calls can attempt to start multiple overlapping exchanges
+        // before the Txop state settles, corrupting m_links.
+        auto sensingTxop = GetQosTxop(AcIndex(m_SensingPriority));
+        if (sensingTxop && sensingTxop->GetWifiMacQueue()->IsEmpty())
+        {
+            StartSensingMeasurementExchange(linkId);
+        }
     }
     else
     {
@@ -2845,6 +2852,8 @@ ApWifiMac::StopCfPeriod()
     m_cfpTimeoutEvent.Cancel();
     
     std::cout << "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ AP Stops CF by : " << GetAddress() << " " << Simulator::Now() << " number of SMEs : " << m_SMECounter << std::endl;
+    m_totalSMECounter += m_SMECounter;
+    m_sawCount++;
     m_SMECounter = 0;
     NS_LOG_DEBUG("CFP ended");
 }

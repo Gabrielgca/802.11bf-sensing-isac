@@ -709,7 +709,17 @@ class ApWifiMac : public InfrastructureWifiMac
     bool m_SensingAppBegin = false; //!< Flag to indicate that the sensing application has started
     bool m_waitingCSIReport = false; //!< Flag to indicate that the AP is waiting for a CSI report
 
-    u_int16_t m_SMECounter = 0; //!< Counter of the number of sensing measurement exchange attempts for the current sensing window
+    u_int16_t m_SMECounter = 0;      //!< SME attempts in the current SAW (reset each SAW)
+    uint32_t m_totalSMECounter = 0;  //!< Cumulative SME count across all SAWs
+    uint32_t m_sawCount = 0;         //!< Number of SAWs that have completed
+
+  public:
+    /** @return Total SME attempts summed across all completed SAWs */
+    uint32_t GetTotalSMECount() const { return m_totalSMECounter; }
+    /** @return Number of Sensing Availability Windows that have completed */
+    uint32_t GetSawCount() const { return m_sawCount; }
+
+  private:
 
     // Safety-timeout event: fires EndSensingMeasurementExchange() if sensing never completes cleanly.
     EventId m_cfpTimeoutEvent;
