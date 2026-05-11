@@ -49,6 +49,7 @@
 #include "ns3/yans-wifi-helper.h"
 
 #include <cmath>
+#include <fstream>
 #include <random>
 
 /* This is a simple example in order to show the frames exchanged in sensing transmission of
@@ -348,6 +349,24 @@ getRandomCoordinate(double min, double max)
     return dis(gen);
 }
 
+// Return a position drawn uniformly from the disc of radius R centered at (cx, cy).
+// Uses ns-3's seeded RNG so results are reproducible per RngSeedManager::SetSeed.
+Vector
+randomInDisc(double cx, double cy, double R, double z = 0.0)
+{
+    Ptr<UniformRandomVariable> uAngle = CreateObject<UniformRandomVariable>();
+    uAngle->SetAttribute("Min", DoubleValue(0.0));
+    uAngle->SetAttribute("Max", DoubleValue(2.0 * M_PI));
+
+    Ptr<UniformRandomVariable> uRadius = CreateObject<UniformRandomVariable>();
+    uRadius->SetAttribute("Min", DoubleValue(0.0));
+    uRadius->SetAttribute("Max", DoubleValue(1.0));
+
+    double theta = uAngle->GetValue();
+    double r     = R * std::sqrt(uRadius->GetValue()); // sqrt for uniform area
+    return Vector(cx + r * std::cos(theta), cy + r * std::sin(theta), z);
+}
+
 Ptr<ListPositionAllocator>
 setLocationScenario(int scenario,
                     Ptr<ListPositionAllocator> positionAlloc,
@@ -371,37 +390,42 @@ setLocationScenario(int scenario,
         std::cout << "rasioAngle: " << rasioAngle << std::endl;
         for (int i = 0; i < nBss; i++)
         {
-            x_baseAp = (rasioAngle * radius) * cos(baseAngle * i);
-            y_baseAp = (rasioAngle * radius) * sin(baseAngle * i);
-            if (i < nBfBss)
+            // For a single BSS keep the AP at the origin; for multi-BSS
+            // spread APs on a ring so they don't overlap.
+            if (nBss == 1)
             {
-                std::cout << "(bf)AP: " << x_baseAp << ", " << y_baseAp << std::endl;
+                x_baseAp = 0.0;
+                y_baseAp = 0.0;
             }
             else
             {
-                std::cout << "(ax)AP: " << x_baseAp << ", " << y_baseAp << std::endl;
+                x_baseAp = (rasioAngle * radius) * cos(baseAngle * i);
+                y_baseAp = (rasioAngle * radius) * sin(baseAngle * i);
             }
+            if (i < nBfBss)
+                std::cout << "(bf)AP: " << x_baseAp << ", " << y_baseAp << std::endl;
+            else
+                std::cout << "(ax)AP: " << x_baseAp << ", " << y_baseAp << std::endl;
+
             positionAlloc->Add(Vector(x_baseAp, y_baseAp, 0.0));
+
+            // STAs drawn uniformly from the disc of the given radius around the AP.
             if (i < nBfBss)
             {
-                double Angle = 2 * M_PI / allBss[i].nStations_sensing;
                 for (uint32_t j = 0; j < allBss[i].nStations_sensing; j++)
                 {
-                    double x = radius * cos(Angle * j) + x_baseAp;
-                    double y = radius * sin(Angle * j) + y_baseAp;
-                    std::cout << "(bf)STA: " << x << ", " << y << std::endl;
-                    positionAlloc->Add(Vector(x, y, 0.0));
+                    Vector pos = randomInDisc(x_baseAp, y_baseAp, radius);
+                    std::cout << "(bf)STA: " << pos.x << ", " << pos.y << std::endl;
+                    positionAlloc->Add(pos);
                 }
             }
             else
             {
-                double Angle = 2 * M_PI / allBss[i].nStations_no_sensing;
                 for (uint32_t j = 0; j < allBss[i].nStations_no_sensing; j++)
                 {
-                    double x = radius * cos(Angle * j) + x_baseAp;
-                    double y = radius * sin(Angle * j) + y_baseAp;
-                    std::cout << "(ax)STA: " << x << ", " << y << std::endl;
-                    positionAlloc->Add(Vector(x, y, 0.0));
+                    Vector pos = randomInDisc(x_baseAp, y_baseAp, radius);
+                    std::cout << "(ax)STA: " << pos.x << ", " << pos.y << std::endl;
+                    positionAlloc->Add(pos);
                 }
             }
         }
@@ -696,8 +720,8 @@ setLocationScenario(int scenario,
         }
     }
     // Scenario 6 : Volumetric video streaming mocking circular placement
-    else if (scenario == ScenarioType::VOLUMETRIC_VIDEO_STREAMING){
-
+    else if (scenario == ScenarioType::VOLUMETRIC_VIDEO_STREAMING)
+    {
         double x_baseAp = 0.0;
         double y_baseAp = 0.0;
         double baseAngle = 0.0;
@@ -712,38 +736,40 @@ setLocationScenario(int scenario,
         std::cout << "rasioAngle: " << rasioAngle << std::endl;
         for (int i = 0; i < nBss; i++)
         {
-            x_baseAp = (rasioAngle * radius) * cos(baseAngle * i);
-            y_baseAp = (rasioAngle * radius) * sin(baseAngle * i);
-            if (i < nBfBss)
+            if (nBss == 1)
             {
-                std::cout << "(bf)AP: " << x_baseAp << ", " << y_baseAp << std::endl;
+                x_baseAp = 0.0;
+                y_baseAp = 0.0;
             }
             else
             {
-                std::cout << "(ax)AP: " << x_baseAp << ", " << y_baseAp << std::endl;
+                x_baseAp = (rasioAngle * radius) * cos(baseAngle * i);
+                y_baseAp = (rasioAngle * radius) * sin(baseAngle * i);
             }
+            if (i < nBfBss)
+                std::cout << "(bf)AP: " << x_baseAp << ", " << y_baseAp << std::endl;
+            else
+                std::cout << "(ax)AP: " << x_baseAp << ", " << y_baseAp << std::endl;
+
             positionAlloc->Add(Vector(x_baseAp, y_baseAp, 0.0));
+
             if (i < nBfBss)
             {
-                double Angle = 2 * M_PI / ( allBss[i].nStations_sensing + allBss[i].nStations_no_sensing );
                 int totalStations = allBss[i].nStations_sensing + allBss[i].nStations_no_sensing;
-                for (uint32_t j = 0; j < totalStations; j++)
+                for (int j = 0; j < totalStations; j++)
                 {
-                    double x = radius * cos(Angle * j) + x_baseAp;
-                    double y = radius * sin(Angle * j) + y_baseAp;
-                    std::cout << "(bf)STA: " << x << ", " << y << std::endl;
-                    positionAlloc->Add(Vector(x, y, 0.0));  
+                    Vector pos = randomInDisc(x_baseAp, y_baseAp, radius);
+                    std::cout << "(bf)STA: " << pos.x << ", " << pos.y << std::endl;
+                    positionAlloc->Add(pos);
                 }
             }
             else
             {
-                double Angle = 2 * M_PI / allBss[i].nStations_no_sensing;
                 for (uint32_t j = 0; j < allBss[i].nStations_no_sensing; j++)
                 {
-                    double x = radius * cos(Angle * j) + x_baseAp;
-                    double y = radius * sin(Angle * j) + y_baseAp;
-                    std::cout << "(ax)STA: " << x << ", " << y << std::endl;
-                    positionAlloc->Add(Vector(x, y, 0.0));
+                    Vector pos = randomInDisc(x_baseAp, y_baseAp, radius);
+                    std::cout << "(ax)STA: " << pos.x << ", " << pos.y << std::endl;
+                    positionAlloc->Add(pos);
                 }
             }
         }
@@ -1271,13 +1297,16 @@ main(int argc, char* argv[])
     nStations_net2 = 1;
     bool enablePcap = true;
     bool enableWiFiSensing = true;
+    bool enableFading = false; // Small-scale Nakagami fading for indoor environment
+    bool enableCsvOutput = false;
+    std::string csvFilename = "simulation_results.csv";
     multipleBss = true;
     bool downlink{true};
-    uint64_t cfpMaxDurationMs = 50;   // milliseconds
+    uint64_t sensingDurationMs = 50;   // milliseconds
     uint64_t sensingInterval = 120.4;    // milliseconds
     uint64_t sensingIntervalType = 0; // 0: Constant, 1: Poisson-distributed
     double simulationTime = 5.0;      // seconds
-    radius = 2.0;                     // meters
+    radius = 5.0;                     // meters — STAs drawn uniformly within this disc
     numerator = 0.0;                  // numerator for the ratio in multiple BSS scenario
     denominator = nBss;               // denominator for the ratio in multiple BSS scenario
     ratio = numerator / denominator;  // ratio of number of bf to ax BSS in multiple BSS scenario
@@ -1344,12 +1373,12 @@ main(int argc, char* argv[])
     std::string codebookSizeSu = "(6,4)"; // Codebook size for SU channel sounding
     std::string codebookSizeMu = "(9,7)"; // Codebook size for MU channel sounding
     uint8_t nc = 2;           // Number of colums in the compressed beamforming feedback matrix
-    uint8_t SoundingType = 3; // Sounding type (0: SU, 1: SU+MU, 2: MU, 3: TF_Sounding)
+    uint8_t SoundingType = 2; // Sounding type (0: SU, 1: SU+MU, 2: MU, 3: TF_Sounding)
     // Ordered 802.11bf sensing phases to run per sensing burst. Accepted tokens:
     // POLLING, NDPA_SOUNDING, TF_SOUNDING, REPORT. Phases may repeat.
     // Examples: "POLLING,TF_SOUNDING", "POLLING,NDPA_SOUNDING,REPORT",
     //           "POLLING,NDPA_SOUNDING,TF_SOUNDING,REPORT".
-    std::string sensingPhaseSequence = "POLLING,NDPA_SOUNDING,TF_SOUNDING";
+    std::string sensingPhaseSequence = "POLLING,NDPA_SOUNDING,NDPA_SOUNDING,TF_SOUNDING,TF_SOUNDING";
 
     /*******************************************/
     // MU-OFDMA Setup in Physical Layer        //
@@ -1381,7 +1410,7 @@ main(int argc, char* argv[])
                  "Data traffic direction for IEEE 802.11ax BSS: upstream (all STAs -> AP) or "
                  "downstream (AP -> all STAs)",
                  downlink);
-    cmd.AddValue("cfpMaxDuration", "CFP max duration in microseconds", cfpMaxDurationMs);
+    cmd.AddValue("sensingDurationMs", "Sensing window duration in TU (x1024 µs each, e.g. 50 -> 51.2 ms)", sensingDurationMs);
     cmd.AddValue("simulationTime", "Simulation time in seconds", simulationTime);
     cmd.AddValue("enablePcap", "Enable/disable PCAP output", enablePcap);
     cmd.AddValue("channelWidth", "Channel bandwidth", channelWidth);
@@ -1433,6 +1462,9 @@ main(int argc, char* argv[])
     cmd.AddValue("trafficType",
                  "Traffic type of communication Wi-Fi protocol (0: Constant, 1: Poisson)",
                  trafficType);
+    cmd.AddValue("enableCsvOutput", "Enable/disable CSV output of simulation results", enableCsvOutput);
+    cmd.AddValue("csvFilename", "Output CSV filename (appends a row per run)", csvFilename);
+    cmd.AddValue("enableFading", "Enable Nakagami small-scale fading (indoor multipath)", enableFading);
     cmd.Parse(argc, argv);
 
     RngSeedManager::SetSeed(iseed);
@@ -1524,6 +1556,23 @@ main(int argc, char* argv[])
         spectrumChannel->AddPropagationLossModel(lossModel);
     }
 
+    // Small-scale fading: Nakagami-m model for indoor multipath environment.
+    // m0=3 (LOS <3m), m1=2 (partial LOS 3-8m), m2=1 Rayleigh (NLOS >8m).
+    // 3GPP TR 38.901 Table 7.4.1-1 indoor office: Rayleigh for NLOS,
+    // Rician K~7 dB (~m≈2-3) for LOS.
+    if (enableFading)
+    {
+        Ptr<NakagamiPropagationLossModel> nakagami =
+            CreateObject<NakagamiPropagationLossModel>();
+        nakagami->SetAttribute("Distance1", DoubleValue(3.0));
+        nakagami->SetAttribute("Distance2", DoubleValue(8.0));
+        nakagami->SetAttribute("m0", DoubleValue(3.0)); // LOS (< 3 m)
+        nakagami->SetAttribute("m1", DoubleValue(2.0)); // partial LOS (3-8 m)
+        nakagami->SetAttribute("m2", DoubleValue(1.0)); // NLOS Rayleigh (> 8 m)
+        nakagami->AssignStreams(iseed + 1000);           // reproducible per seed
+        spectrumChannel->AddPropagationLossModel(nakagami);
+    }
+
     Ptr<ConstantSpeedPropagationDelayModel> delayModel =
         CreateObject<ConstantSpeedPropagationDelayModel>();
     spectrumChannel->SetPropagationDelayModel(delayModel);
@@ -1577,7 +1626,7 @@ main(int argc, char* argv[])
                               "WiFiSensingSupported",
                               BooleanValue(enableWiFiSensing),
                               "CfpMaxDuration",
-                              TimeValue(MicroSeconds(cfpMaxDurationMs * 1024)),
+                              TimeValue(MicroSeconds(sensingDurationMs * 1024)),
                               "CtsToSelfSupported",
                               BooleanValue(enableCTStoSelf),
                               "ChannelSoundingSupported",
@@ -1617,7 +1666,7 @@ main(int argc, char* argv[])
                                "WiFiSensingSupported",
                                BooleanValue(enableWiFiSensing),
                                "CfpMaxDuration",
-                               TimeValue(MicroSeconds(cfpMaxDurationMs * 1024)),
+                               TimeValue(MicroSeconds(sensingDurationMs * 1024)),
                                "CtsToSelfSupported",
                                BooleanValue(enableCTStoSelf),
                                "QosSupported",
@@ -1668,7 +1717,7 @@ main(int argc, char* argv[])
                           "WiFiSensingSupported",
                           BooleanValue(enableWiFiSensing),
                           "CfpMaxDuration",
-                          TimeValue(MicroSeconds(cfpMaxDurationMs * 1024)),
+                          TimeValue(MicroSeconds(sensingDurationMs * 1024)),
                           "CtsToSelfSupported",
                           BooleanValue(enableCTStoSelf),
                           "ChannelSoundingSupported",
@@ -1711,7 +1760,7 @@ main(int argc, char* argv[])
                            "WiFiSensingSupported",
                            BooleanValue(enableWiFiSensing),
                            "CfpMaxDuration",
-                           TimeValue(MicroSeconds(cfpMaxDurationMs * 1024)),
+                           TimeValue(MicroSeconds(sensingDurationMs * 1024)),
                            "CtsToSelfSupported",
                            BooleanValue(enableCTStoSelf),
                            "QosSupported",
@@ -1737,7 +1786,7 @@ main(int argc, char* argv[])
                            "WiFiSensingSupported",
                            BooleanValue(false),
                            "CfpMaxDuration",
-                           TimeValue(MicroSeconds(cfpMaxDurationMs * 1024)),
+                           TimeValue(MicroSeconds(sensingDurationMs * 1024)),
                            "CtsToSelfSupported",
                            BooleanValue(enableCTStoSelf),
                            "QosSupported",
@@ -1791,7 +1840,7 @@ main(int argc, char* argv[])
         //                       "QosSupported",
         //                       BooleanValue(true),
         //                       "CfpMaxDuration",
-        //                       TimeValue(MicroSeconds(cfpMaxDurationMs * 1024)),
+        //                       TimeValue(MicroSeconds(sensingDurationMs * 1024)),
         //                       "CtsToSelfSupported",
         //                       BooleanValue(enableCTStoSelf),
         //                       "ChannelSoundingSupported",
@@ -2353,6 +2402,37 @@ main(int argc, char* argv[])
         if (unsuccessfulSensing < 0)
             unsuccessfulSensing = 0;
         std::cout << "# unsuccessfull sensing: " << unsuccessfulSensing << std::endl;
+
+        if (enableCsvOutput)
+        {
+            uint32_t totalSME = 0;
+            uint32_t totalSAW = 0;
+            for (int i = 0; i < nBfBss; i++)
+            {
+                auto apMac = StaticCast<ApWifiMac>(
+                    DynamicCast<WifiNetDevice>(allBss[i].apDevice.Get(0))->GetMac());
+                totalSME += apMac->GetTotalSMECount();
+                totalSAW += apMac->GetSawCount();
+            }
+            double avgPerWindow = (totalSAW > 0) ? static_cast<double>(totalSME) / totalSAW : 0;
+            bool fileExists = std::ifstream(csvFilename).good();
+            std::ofstream csvFile(csvFilename, std::ios::app);
+            if (!fileExists)
+            {
+                csvFile << "Throughput_Mbps,AvgExchangesPerWindow,TotalSensingExchanges,"
+                        << "TotalSAWs,SensingInterval_ms,SensingDuration_ms,SensingSequence,"
+                        << "NumStations,NumAPs,SensingEnabled,Seed,SimulationTime_s,RatioStasSensing\n";
+            }
+            uint32_t totalAPs = 0;
+            for (int i = 0; i < nBfBss; i++)
+                totalAPs += allBss[i].nAp;
+            csvFile << throughput << "," << avgPerWindow << "," << totalSME << ","
+                    << totalSAW << ","
+                    << sensingInterval << "," << sensingDurationMs << ","
+                    << "\"" << sensingPhaseSequence << "\","
+                    << nStations << "," << totalAPs << "," << enableWiFiSensing << "," << iseed << ","
+                    << simulationTime << "," << ratioStasSensing << "\n";
+        }
     }
     else
     {
@@ -2745,6 +2825,37 @@ main(int argc, char* argv[])
         if (unsuccessfulSensing < 0)
             unsuccessfulSensing = 0;
         std::cout << "# unsuccessfull sensing: " << unsuccessfulSensing << std::endl;
+
+        if (enableCsvOutput)
+        {
+            uint32_t totalSME = 0;
+            uint32_t totalSAW = 0;
+            for (int i = 0; i < nBfBss; i++)
+            {
+                auto apMac = StaticCast<ApWifiMac>(
+                    DynamicCast<WifiNetDevice>(allBss[i].apDevice.Get(0))->GetMac());
+                totalSME += apMac->GetTotalSMECount();
+                totalSAW += apMac->GetSawCount();
+            }
+            double avgPerWindow = (totalSAW > 0) ? static_cast<double>(totalSME) / totalSAW : 0;
+            bool fileExists = std::ifstream(csvFilename).good();
+            std::ofstream csvFile(csvFilename, std::ios::app);
+            if (!fileExists)
+            {
+                csvFile << "Throughput_Mbps,AvgExchangesPerWindow,TotalSensingExchanges,"
+                        << "TotalSAWs,SensingInterval_ms,SensingDuration_ms,SensingSequence,"
+                        << "NumStations,NumAPs,SensingEnabled,Seed,SimulationTime_s,RatioStasSensing\n";
+            }
+            uint32_t totalAPs = 0;
+            for (int i = 0; i < nBfBss; i++)
+                totalAPs += allBss[i].nAp;
+            csvFile << throughput << "," << avgPerWindow << "," << totalSME << ","
+                    << totalSAW << ","
+                    << sensingInterval << "," << sensingDurationMs << ","
+                    << "\"" << sensingPhaseSequence << "\","
+                    << nStations << "," << totalAPs << "," << enableWiFiSensing << "," << iseed << ","
+                    << simulationTime << "," << ratioStasSensing << "\n";
+        }
 
         Simulator::Destroy();
         return 0;
