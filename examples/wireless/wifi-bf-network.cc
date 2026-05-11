@@ -1303,7 +1303,7 @@ main(int argc, char* argv[])
     multipleBss = true;
     bool downlink{true};
     uint64_t sensingDurationMs = 50;   // milliseconds
-    uint64_t sensingInterval = 120.4;    // milliseconds
+    uint64_t sensingIntervalMs = 120.4;    // milliseconds
     uint64_t sensingIntervalType = 0; // 0: Constant, 1: Poisson-distributed
     double simulationTime = 5.0;      // seconds
     radius = 5.0;                     // meters — STAs drawn uniformly within this disc
@@ -1453,7 +1453,7 @@ main(int argc, char* argv[])
     cmd.AddValue("residentialDensity",
                  "Density scenario for the residential layout",
                  residentialDensity);
-    cmd.AddValue("sensingInterval", "Rate for sensing procedure", sensingInterval);
+    cmd.AddValue("sensingIntervalMs", "Rate for sensing procedure", sensingIntervalMs);
     cmd.AddValue("sensingIntervalType", "Type of sensing interval", sensingIntervalType);
     cmd.AddValue("ratioStasSensing", "The ratio of how many stations perform sensing in a BSS", ratioStasSensing);
     cmd.AddValue("enableFrameAggregation",
@@ -1638,7 +1638,7 @@ main(int argc, char* argv[])
                               "SensingPriority",
                               UintegerValue(sensingPriority),
                               "SensingInterval",
-                              TimeValue(MilliSeconds(sensingInterval)),
+                              TimeValue(MilliSeconds(sensingIntervalMs)),
                               "SensingIntervalType",
                               UintegerValue(sensingIntervalType),
                               "SensingPhaseSequence",
@@ -1729,7 +1729,7 @@ main(int argc, char* argv[])
                           "SensingPriority",
                           UintegerValue(sensingPriority),
                           "SensingInterval",
-                          TimeValue(MilliSeconds(sensingInterval)),
+                          TimeValue(MilliSeconds(sensingIntervalMs)),
                           "SensingIntervalType",
                           UintegerValue(sensingIntervalType),
                           "SensingPhaseSequence",
@@ -1852,7 +1852,7 @@ main(int argc, char* argv[])
         //                       "SensingPriority",
         //                       UintegerValue(sensingPriority),
         //                       "SensingInterval",
-        //                       TimeValue(MilliSeconds(sensingInterval)),
+        //                       TimeValue(MilliSeconds(sensingIntervalMs)),
         //                       "SensingIntervalType",
         //                       UintegerValue(sensingIntervalType),
         //                       "SensingPriority",
@@ -2398,7 +2398,7 @@ main(int argc, char* argv[])
         }
         std::cout << "# successful sensing: " << m_innerCounter << std::endl;
         int unsuccessfulSensing =
-            simulationTime * (1000 / sensingInterval) * nBfBss - m_innerCounter;
+            simulationTime * (1000 / sensingIntervalMs) * nBfBss - m_innerCounter;
         if (unsuccessfulSensing < 0)
             unsuccessfulSensing = 0;
         std::cout << "# unsuccessfull sensing: " << unsuccessfulSensing << std::endl;
@@ -2428,7 +2428,7 @@ main(int argc, char* argv[])
                 totalAPs += allBss[i].nAp;
             csvFile << throughput << "," << avgPerWindow << "," << totalSME << ","
                     << totalSAW << ","
-                    << sensingInterval << "," << sensingDurationMs << ","
+                    << sensingIntervalMs << "," << sensingDurationMs << ","
                     << "\"" << sensingPhaseSequence << "\","
                     << nStations << "," << totalAPs << "," << enableWiFiSensing << "," << iseed << ","
                     << simulationTime << "," << ratioStasSensing << "\n";
@@ -2821,7 +2821,7 @@ main(int argc, char* argv[])
 
         std::cout << "# successful sensing: " << m_innerCounter << std::endl;
         int unsuccessfulSensing =
-            simulationTime * (1000 / sensingInterval) * nBfBss - m_innerCounter;
+            simulationTime * (1000 / sensingIntervalMs) * nBfBss - m_innerCounter;
         if (unsuccessfulSensing < 0)
             unsuccessfulSensing = 0;
         std::cout << "# unsuccessfull sensing: " << unsuccessfulSensing << std::endl;
@@ -2851,7 +2851,7 @@ main(int argc, char* argv[])
                 totalAPs += allBss[i].nAp;
             csvFile << throughput << "," << avgPerWindow << "," << totalSME << ","
                     << totalSAW << ","
-                    << sensingInterval << "," << sensingDurationMs << ","
+                    << sensingIntervalMs << "," << sensingDurationMs << ","
                     << "\"" << sensingPhaseSequence << "\","
                     << nStations << "," << totalAPs << "," << enableWiFiSensing << "," << iseed << ","
                     << simulationTime << "," << ratioStasSensing << "\n";

@@ -14,7 +14,7 @@ export IDO_LOG_FUNCTION="ApWifiMac=level_function|prefix_time:StaWifiMac=level_f
 # seed=("347" "722" "876" "59" "463" "389" "815" "213" "630" "498") # 10 seed values
 # seed=("347" "722" "876" "59") # 4 seed values
 seed=("347") # 1 seed values
-sensingInterval=("50" "40" "30" "20" "10") # 5 intervals
+sensingIntervalMs=("50" "40" "30" "20" "10") # 5 intervals
 radius=("1" "2" "3" "4" "5" "10" "15" "20" "25" "30") # 10 radius
 distance=("5" "10" "15" "20" "25" "30")
 frequency=("5" "6")
@@ -24,7 +24,7 @@ nBssMulSta=("2" "3" "4" "5" "6")                # 5 BSS
 nStations=("1" "2" "3" "4" "5" "6" "7" "8" "9") # 9 stations
 nStationsMultiBss=("1" "2" "3" "4")             # 4 stations
 multipleBss=("true" "false")
-cfpMaxDuration=("1" "5" "10" "15" "20" "25" "50" "100")
+sensingDurationMs=("1" "5" "10" "15" "20" "25" "50" "100")
 numerator=("0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "10" "11") # 12 numerator
 senPriority=("0" "1" "2" "3")                                 # 4 sensing priority
 residntialDensity=("0" "1")
@@ -122,7 +122,7 @@ if [ "$option" == "multipleBssAx" ]; then
 
             # Run each iteration in the background for parallel processing
             (
-                ./ns3 run "examples/wireless/wifi-bf-network.cc --nBss=$BssNum --nAxBss=$nAxBss --seed=$s --sensingInterval=1000 --simulationTime=10.0" > /$Save_loc/Result/Result_multipleBSS/MultipleAX/"nBss=$BssNum"/nolog_multipleBss=$BssNum,seed=$s.txt 2>&1
+                ./ns3 run "examples/wireless/wifi-bf-network.cc --nBss=$BssNum --nAxBss=$nAxBss --seed=$s --sensingIntervalMs=1000 --simulationTime=10.0" > /$Save_loc/Result/Result_multipleBSS/MultipleAX/"nBss=$BssNum"/nolog_multipleBss=$BssNum,seed=$s.txt 2>&1
 
             ) &
 
@@ -237,14 +237,14 @@ fi
 
 if [ "$option" == "multipleBssBfInterval" ]; then
     counter=0
-    for Interval in "${sensingInterval[@]}"; do
+    for Interval in "${sensingIntervalMs[@]}"; do
         for BssNum in "${nBssMulSta[@]}"; do
             for s in "${seed[@]}"; do
                 echo "Processing file $counter: Interval=$Interval, nBss = $BssNum, Seed = $s"
 
                 # Run each iteration in the background for parallel processing
                 (
-                    ./ns3 run "examples/wireless/wifi-bf-network.cc --nBss=$BssNum --nAxBss=1 --simulationTime=$Interval --sensingInterval=$Interval --seed=$s" --no-build >/$Save_loc/Result/Result_multipleBSS/multipleBFInterval/"Interval=$Interval"/"nBss=$BssNum"/nolog_multipleBss=$BssNum,seed=$s.out 2>&1
+                    ./ns3 run "examples/wireless/wifi-bf-network.cc --nBss=$BssNum --nAxBss=1 --simulationTime=$Interval --sensingIntervalMs=$Interval --seed=$s" --no-build >/$Save_loc/Result/Result_multipleBSS/multipleBFInterval/"Interval=$Interval"/"nBss=$BssNum"/nolog_multipleBss=$BssNum,seed=$s.out 2>&1
                 ) &
 
                 ((counter++))
@@ -261,15 +261,15 @@ fi
 
 if [ "$option" == "multipleBssBfIntervalOffice" ]; then
     counter=0
-    for Interval in "${sensingInterval[@]}"; do
+    for Interval in "${sensingIntervalMs[@]}"; do
         for s in "${seed[@]}"; do
             echo "Processing file $counter: Interval=$Interval, Seed = $s"
 
             # Run each iteration in the background for parallel processing
             (
-                ./ns3 run "examples/wireless/wifi-bf-network.cc --scenario=5 --nBfBss=6 --simulationTime=60.0 --sensingInterval=$Interval --seed=$s" --no-build >$Save_loc/Result/Result_multipleBSS/multipleBFInterval/"Interval=$Interval"/nolog_multipleBss_seed=$s.out 2>&1
+                ./ns3 run "examples/wireless/wifi-bf-network.cc --scenario=5 --nBfBss=6 --simulationTime=60.0 --sensingIntervalMs=$Interval --seed=$s" --no-build >$Save_loc/Result/Result_multipleBSS/multipleBFInterval/"Interval=$Interval"/nolog_multipleBss_seed=$s.out 2>&1
             ) &
- # ./ns3 run "examples/wireless/wifi-bf-network.cc --scenario=5 --nBfBss=5 --nAxBss=1 --sensingInterval=10 --seed=347 --simulationTime=3.0"
+ # ./ns3 run "examples/wireless/wifi-bf-network.cc --scenario=5 --nBfBss=5 --nAxBss=1 --sensingIntervalMs=10 --seed=347 --simulationTime=3.0"
             ((counter++))
 
             # Limit the number of parallel processes (adjust as needed)
@@ -319,7 +319,7 @@ if [ "$option" == "simpleSensingIntervals" ]; then
             # Run each iteration in the background for parallel processing
             (
                 # Example of running your program with parameters
-                ./ns3 run "examples/wireless/wifi-bf-network.cc --sensingInterval=$Interval --seed=$nseed --nBss=2 --nAxBss=1 --simulationTime=60.0" >/$Save_loc/Result/Result_sensInterval/"Interval=$Interval"/nolog_priority=seed=$nseed.out 2>&1
+                ./ns3 run "examples/wireless/wifi-bf-network.cc --sensingIntervalMs=$Interval --seed=$nseed --nBss=2 --nAxBss=1 --simulationTime=60.0" >/$Save_loc/Result/Result_sensInterval/"Interval=$Interval"/nolog_priority=seed=$nseed.out 2>&1
 
             ) &
             
