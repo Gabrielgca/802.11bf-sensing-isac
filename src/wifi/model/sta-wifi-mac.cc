@@ -1178,25 +1178,14 @@ StaWifiMac::Receive(Ptr<const WifiMpdu> mpdu, uint8_t linkId)
         mpdu->GetPacket()->PeekHeader(beacon);
         // CfParameterSet cfParameterSet = beacon.GetCfParameterSet();
         
-        // Only PCF-aware STAs set their NAV from the beacon CFP duration.
-        // CFPCount == 0 means this beacon marks the start of a new CFP.
-        // Non-PCF STAs must NOT set their NAV here — the CF-End broadcast
-        // is what they rely on (via QosFrameExchangeManager::UpdateNav)
-        // to unblock EDCA, so pre-setting their NAV to the full CFP
-        // duration would cause them to block unnecessarily.
-        const auto& cfParamOpt = beacon.Get<CfParameterSet>();
-
-        if (cfParamOpt.has_value())
-        {
-            CfParameterSet cfParameterSet = *cfParamOpt;
-            if (GetPcfSupported() && cfParameterSet.GetCFPCount() == 0)
-            {
-                // see section 9.3.2.2 802.11-1999
-                GetChannelAccessManager(linkId)->NotifyNavStartNow(
-                    MicroSeconds(cfParameterSet.GetCFPMaxDurationUs()));
-            }
-        }
-        // If no CF parameter set, continue processing so ReceiveBeacon() is still called
+        // Do NOT set NAV from the beacon's CF Parameter Set for PCF/sensing STAs.
+        // In our 802.11bf sensing protocol, channel access during the CFP is
+        // already controlled by IsCfPeriod() checks and the CF-Poll mechanism.
+        // Setting NAV from the beacon is redundant and harmful: because the AP
+        // advertises CFPCount=0 in every beacon, PCF STAs would perpetually renew
+        // their NAV on each beacon boundary, blocking even association requests when
+        // cfpMaxDuration approaches or exceeds the beacon interval.
+        // Non-PCF STAs (if present) learn about the CFP via the CF-End broadcast.
     }
     Mac48Address myAddr = hdr->IsData() ? Mac48Address::ConvertFrom(GetDevice()->GetAddress())
                                         : GetFrameExchangeManager(linkId)->GetAddress();
