@@ -21,6 +21,8 @@
 
 #include "ap-wifi-mac.h"
 
+#include <set>
+
 #include "amsdu-subframe-header.h"
 #include "channel-access-manager.h"
 #include "mac-rx-middle.h"
@@ -3227,6 +3229,34 @@ ApWifiMac::SetSensingPhaseSequence(const std::vector<SensingPhase>& sequence)
 {
     NS_LOG_FUNCTION(this);
     NS_ABORT_MSG_IF(sequence.empty(), "SensingPhaseSequence must contain at least one phase");
+
+    // IEEE 802.11bf: validate that the sequence forms a meaningful sensing burst.
+    // A sensing phase sequence shall not consist solely of:
+    //  (1) a reporting phase alone
+    //  (2) [NOT ENFORCED] an NDPA sounding phase alone — in this implementation,
+    //      NDPA_SOUNDING automatically triggers an implicit reporting phase after
+    //      the NDP exchange, so NDPA_SOUNDING alone is functionally valid here.
+    //  (3) [NOT IMPLEMENTED] an SR2SI TF sounding phase alone in which the sensing
+    //      responder is a receiver — SR2SR TF sounding is not yet implemented in
+    //      this simulation; this restriction should be enforced in a future
+    //      implementation when SR2SR is added.
+    //  (4) only a polling phase followed by a reporting phase (no sounding in between)
+    const std::set<SensingPhase> phases(sequence.begin(), sequence.end());
+    const bool hasPolling  = phases.count(SensingPhase::POLLING)       > 0;
+    const bool hasNdpa     = phases.count(SensingPhase::NDPA_SOUNDING)  > 0;
+    const bool hasTf       = phases.count(SensingPhase::TF_SOUNDING)    > 0;
+    const bool hasReport   = phases.count(SensingPhase::REPORT)         > 0;
+    const bool hasSounding = hasNdpa || hasTf;
+
+    NS_ABORT_MSG_IF(!hasPolling && !hasSounding && hasReport,
+        "Invalid SensingPhaseSequence (IEEE 802.11bf): "
+        "sequence shall not consist solely of a reporting phase.");
+
+    NS_ABORT_MSG_IF(hasPolling && hasReport && !hasSounding,
+        "Invalid SensingPhaseSequence (IEEE 802.11bf): "
+        "sequence shall not consist only of a polling phase followed by a reporting phase "
+        "(a sounding phase — NDPA_SOUNDING or TF_SOUNDING — is required).");
+
     m_sensingPhaseSequence = sequence;
 }
 
