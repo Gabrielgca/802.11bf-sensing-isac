@@ -1178,14 +1178,30 @@ StaWifiMac::Receive(Ptr<const WifiMpdu> mpdu, uint8_t linkId)
         mpdu->GetPacket()->PeekHeader(beacon);
         // CfParameterSet cfParameterSet = beacon.GetCfParameterSet();
         
-        // Do NOT set NAV from the beacon's CF Parameter Set for PCF/sensing STAs.
-        // In our 802.11bf sensing protocol, channel access during the CFP is
-        // already controlled by IsCfPeriod() checks and the CF-Poll mechanism.
-        // Setting NAV from the beacon is redundant and harmful: because the AP
-        // advertises CFPCount=0 in every beacon, PCF STAs would perpetually renew
-        // their NAV on each beacon boundary, blocking even association requests when
-        // cfpMaxDuration approaches or exceeds the beacon interval.
-        // Non-PCF STAs (if present) learn about the CFP via the CF-End broadcast.
+        // NAV policy for the CF Parameter Set in the beacon:
+        //
+        // • PCF/sensing STAs (GetPcfSupported()==true): do NOT set NAV.
+        //   Channel access during the CFP is already governed by IsCfPeriod()
+        //   checks and the CF-Poll mechanism. Setting NAV here is redundant and
+        //   harmful — the AP advertises CFPCount=0 in every beacon, which would
+        //   cause sensing STAs to perpetually renew their NAV and block association
+        //   requests when cfpMaxDuration approaches the beacon interval.
+        //
+        // • Non-sensing STAs (GetPcfSupported()==false): DO set NAV.
+        //   These STAs have no IsCfPeriod() awareness and will otherwise transmit
+        //   freely during the CFP, corrupting the sensing exchange. Setting their
+        //   NAV to cfpMaxDuration after each beacon with CFPCount==0 is the
+        //   standard 802.11 PCF mechanism for non-CF-pollable STAs to defer.
+        const auto& cfParamOpt = beacon.Get<CfParameterSet>();
+        if (cfParamOpt.has_value() && !GetPcfSupported())
+        {
+            const CfParameterSet& cfParameterSet = *cfParamOpt;
+            if (cfParameterSet.GetCFPCount() == 0)
+            {
+                GetChannelAccessManager(linkId)->NotifyNavStartNow(
+                    MicroSeconds(cfParameterSet.GetCFPMaxDurationUs()));
+            }
+        }
     }
     Mac48Address myAddr = hdr->IsData() ? Mac48Address::ConvertFrom(GetDevice()->GetAddress())
                                         : GetFrameExchangeManager(linkId)->GetAddress();
@@ -2047,6 +2063,12 @@ StaWifiMac::GetCapabilities(uint8_t linkId) const
     capabilities.SetShortPreamble(GetWifiPhy(linkId)->GetShortPhyPreambleSupported() ||
                                   GetErpSupported(linkId));
     capabilities.SetShortSlotTime(GetShortSlotTimeSupported() && GetErpSupported(linkId));
+    // Advertise CF-Poll capability so the AP can distinguish sensing STAs
+    // (WiFiSensingSupported=true) from non-sensing STAs in the same BSS.
+    if (GetPcfSupported())
+    {
+        capabilities.SetCfPollable();
+    }
     return capabilities;
 }
 

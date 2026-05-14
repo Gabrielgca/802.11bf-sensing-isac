@@ -709,6 +709,7 @@ class ApWifiMac : public InfrastructureWifiMac
     bool m_SensingAppBegin = false; //!< Flag to indicate that the sensing application has started
     bool m_waitingCSIReport = false; //!< Flag to indicate that the AP is waiting for a CSI report
 
+    bool m_smeActive = false;        //!< True between StartSensingMeasurementExchange and EndSensingMeasurementExchange
     u_int16_t m_SMECounter = 0;      //!< SME attempts in the current SAW (reset each SAW)
     uint32_t m_totalSMECounter = 0;  //!< Cumulative SME count across all SAWs
     uint32_t m_sawCount = 0;         //!< Number of SAWs that have completed
@@ -718,6 +719,12 @@ class ApWifiMac : public InfrastructureWifiMac
     uint32_t GetTotalSMECount() const { return m_totalSMECounter; }
     /** @return Number of Sensing Availability Windows that have completed */
     uint32_t GetSawCount() const { return m_sawCount; }
+    /** @return true if addr is a sensing-capable STA (in the CF-polling list) */
+    bool IsInCfPollingList(Mac48Address addr) const
+    {
+        return std::find(m_cfPollingList.begin(), m_cfPollingList.end(), addr) !=
+               m_cfPollingList.end();
+    }
 
   private:
 

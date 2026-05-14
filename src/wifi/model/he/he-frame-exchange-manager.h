@@ -158,6 +158,14 @@ class HeFrameExchangeManager : public VhtFrameExchangeManager
      */
     Ptr<CsBeamformer> GetCsBeamformer() const;
     /**
+     * @return true while any sensing sounding phase is in progress:
+     *   NDPA sounding (NDPA sent, awaiting BF reports) or
+     *   TF sounding (Sensing TF sent, awaiting NDPs).
+     * Used by ApWifiMac::SendNextCfFrame to prevent a new polling round
+     * from starting while a sounding exchange is still outstanding.
+     */
+    bool IsSoundingInProgress() const;
+    /**
      * Get the pointer of channel sounding beamformee
      * \return channel sounding beamformee pointer
      */

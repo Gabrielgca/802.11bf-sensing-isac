@@ -20,6 +20,7 @@
  */
 
 #include "ap-wifi-mac.h"
+#include "he/he-frame-exchange-manager.h"
 
 #include <set>
 
@@ -1942,8 +1943,13 @@ ApWifiMac::Receive(Ptr<const WifiMpdu> mpdu, uint8_t linkId)
                 {
                     ParseReportedStaInfo(frame, from, linkId);
                 }
-                // Attempt to implement PCF
-                if (GetPcfSupported())
+                // Add to PCF polling list only if the STA declared CF-Pollable in
+                // its association request. Non-sensing STAs (WiFiSensingSupported=false)
+                // do not set this bit, so they are excluded from the sensing exchange.
+                const bool staCfPollable = std::visit(
+                    [](const auto& f) -> bool { return f.get().Capabilities().IsCfPollable(); },
+                    frame);
+                if (GetPcfSupported() && staCfPollable)
                 {
                     m_cfPollingList.push_back(from);
                     if (m_itCfPollingList == m_cfPollingList.end())
@@ -2866,7 +2872,8 @@ ApWifiMac::StartSensingMeasurementExchange(uint8_t linkId)
 {
     NS_LOG_FUNCTION(this);
     NS_ASSERT(GetPcfSupported() && !m_cfPollingList.empty());
-    std::cout << "####################### Start Sensing Measurement Exchange by : " << GetAddress() << " " << Simulator::Now() << std::endl; 
+    m_smeActive = true;
+    std::cout << "####################### Start Sensing Measurement Exchange by : " << GetAddress() << " " << Simulator::Now() << std::endl;
     // Build and queue a QoS CF-Poll addressed to the current STA.
     Mac48Address pollTarget = *m_itCfPollingList;
 
@@ -2974,6 +2981,7 @@ ApWifiMac::EndSensingMeasurementExchange(uint8_t linkId)
 
 
 
+    m_smeActive = false;
     std::cout << "####################### End Sensing Measurement Exchange by : " << GetAddress() << " " << Simulator::Now() << std::endl;
     // Drain any leftover CF-Poll from the sensing queue.
     Ptr<WifiMpdu> lastMpdu =

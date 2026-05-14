@@ -3745,9 +3745,14 @@ HeFrameExchangeManager::SendCsFramesFromBeamformer()
     Time ndpTime =
         m_csBeamformer->GetBeamformerFrameInfo().m_txParamsNdpa.m_txDuration + m_phy->GetSifs();
 
+    // Use SendPollTriggerIfInCfp for deferred transmissions so they are
+    // silently discarded if the CFP ends before the callback fires.
+    // Calling SendPsduMapWithProtection directly would reach
+    // HtFrameExchangeManager::GetPsduDurationId() with m_edca==null
+    // whenever StopCfPeriod() clears m_edca before these events execute.
     Simulator::Schedule(
         ndpTime,
-        &HeFrameExchangeManager::SendPsduMapWithProtection,
+        &HeFrameExchangeManager::SendPollTriggerIfInCfp,
         this,
         WifiPsduMap{
             {SU_STA_ID,
@@ -3761,7 +3766,7 @@ HeFrameExchangeManager::SendCsFramesFromBeamformer()
                        m_phy->GetSifs();
         Simulator::Schedule(
             TF_time,
-            &HeFrameExchangeManager::SendPsduMapWithProtection,
+            &HeFrameExchangeManager::SendPollTriggerIfInCfp,
             this,
             WifiPsduMap{
                 {SU_STA_ID,
@@ -3812,6 +3817,22 @@ HeFrameExchangeManager::GetCsBeamformer() const
 {
     NS_ASSERT(m_csBeamformer != nullptr);
     return m_csBeamformer;
+}
+
+bool
+HeFrameExchangeManager::IsSoundingInProgress() const
+{
+    // NDPA sounding: NDPA was sent, AP is waiting for beamforming reports
+    if (m_csBeamformer != nullptr && m_csBeamformer->IsNdpaSent())
+    {
+        return true;
+    }
+    // TF sounding: Sensing TF was sent, AP is waiting for NDPs from STAs
+    if (m_waitingForSensingNdp)
+    {
+        return true;
+    }
+    return false;
 }
 
 Ptr<CsBeamformee>

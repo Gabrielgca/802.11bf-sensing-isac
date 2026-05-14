@@ -1704,6 +1704,17 @@ RrMultiUserScheduler::TryPollingPhase11bf()
             continue;
         }
 
+        // Only poll sensing-capable STAs (those that advertised CF-Pollable and
+        // were added to the AP's CF-polling list at association time).
+        // Non-sensing STAs ignore CF-Polls, which breaks the sensing state machine.
+        if (!m_apMac->IsInCfPollingList(staIt->address))
+        {
+            NS_LOG_DEBUG("Skipping non-sensing STA " << staIt->address
+                         << " from sensing CF-Poll psduMap");
+            staIt++;
+            continue;
+        }
+
         // attempt to add channel sounding from ns3.37 : modification in TrySendingDlMuPpdu for
         // current resource allocation setup
         HeRu::RuType currRuType;
