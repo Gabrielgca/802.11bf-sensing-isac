@@ -2023,7 +2023,8 @@ main(int argc, char* argv[])
                 Ptr<WifiNetDevice> AP_net_device =
                     DynamicCast<ns3::WifiNetDevice>(allBss[i].apDevice.Get(0));
                 auto apWifiMac = StaticCast<ApWifiMac>(AP_net_device->GetMac());
-                for (uint32_t j = 0; j < allBss[i].nStations_sensing; j++)
+                uint32_t totalStas = allBss[i].nStations_sensing + allBss[i].nStations_no_sensing;
+                for (uint32_t j = 0; j < totalStas; j++)
                 {
                     Ptr<WifiNetDevice> STA_net_device =
                         DynamicCast<ns3::WifiNetDevice>(allBss[i].staDevices.Get(j));
@@ -2053,7 +2054,13 @@ main(int argc, char* argv[])
             Ptr<WifiNetDevice> AP_net_device =
                 DynamicCast<ns3::WifiNetDevice>(allBss[i].apDevice.Get(0));
             auto apWifiMac = StaticCast<ApWifiMac>(AP_net_device->GetMac());
-            for (uint32_t j = 0; j < allBss[i].nStations_sensing; j++)
+            // Set BSSID for ALL STAs in this BSS (sensing + non-sensing).
+            // Non-sensing STAs are appended to staDevices after sensing STAs,
+            // so the total count is nStations_sensing + nStations_no_sensing.
+            // Without this, non-sensing STAs using ManualConnection=true never
+            // have their BSSID set and their association requests go unanswered.
+            uint32_t totalStas = allBss[i].nStations_sensing + allBss[i].nStations_no_sensing;
+            for (uint32_t j = 0; j < totalStas; j++)
             {
                 Ptr<WifiNetDevice> STA_net_device =
                     DynamicCast<ns3::WifiNetDevice>(allBss[i].staDevices.Get(j));
@@ -2453,20 +2460,24 @@ main(int argc, char* argv[])
                 clientNodes.Add(allBss[i].wifiApNode.Get(0));
             }
 
-            // if (allBss[i].wifiStaNoSensingNode.GetN() != 0){
-
-            // }
+            // Build interface / client lists for non-sensing STAs.
+            // Their IPs are in StaInterface at indices [nStations_sensing … nStations_sensing+nStations_no_sensing).
+            Ipv4InterfaceContainer serverInterfacesNoSensing;
+            NodeContainer clientNodesNoSensing;
+            uint32_t nsSensingOffset = allBss[i].wifiStaSensingNode.GetN();
+            for (uint32_t index = 0; index < allBss[i].wifiStaNoSensingNode.GetN(); ++index)
+            {
+                serverInterfacesNoSensing.Add(allBss[i].StaInterface.Get(nsSensingOffset + index));
+                clientNodesNoSensing.Add(allBss[i].wifiApNode.Get(0));
+            }
 
             if (udp)
             {
-                // UDP flow for Access Point
-
-
+                // UDP flow — sensing STAs
                 std::cout << "UDP FLOW FOR BSS " << i + 1 << " WITH "
-                          << allBss[i].wifiStaSensingNode.GetN() << " STAS" <<std::endl;
+                          << allBss[i].wifiStaSensingNode.GetN() << " SENSING STAS" <<std::endl;
                 UdpServerHelper server(portNumber);
                 serverApplications.Add(server.Install(serverNodes.get()));
-
                 serverApplications.Start(Seconds(0.0));
                 serverApplications.Stop(Seconds(simulationTime + 1));
 
@@ -2476,18 +2487,40 @@ main(int argc, char* argv[])
                     client.SetAttribute("MaxPackets", UintegerValue(4294967295U));
                     client.SetAttribute("Interval", TimeValue(Time("0.00001")));
                     client.SetAttribute("PacketSize", UintegerValue(payloadSize));
-                    clientApplications.Add(client.Install(clientNodes.Get(index)));  // ← .Add()
+                    clientApplications.Add(client.Install(clientNodes.Get(index)));
                 }
-                clientApplications.Start(Seconds(1.0));   // ← moved outside loop
+                clientApplications.Start(Seconds(1.0));
                 clientApplications.Stop(Seconds(simulationTime + 1));
+
+                // UDP flow — non-sensing STAs (same port, different nodes)
+                if (allBss[i].wifiStaNoSensingNode.GetN() > 0)
+                {
+                    std::cout << "UDP FLOW FOR BSS " << i + 1 << " WITH "
+                              << allBss[i].wifiStaNoSensingNode.GetN() << " NON-SENSING STAS" <<std::endl;
+                    UdpServerHelper serverNs(portNumber);
+                    serverApplications.Add(serverNs.Install(allBss[i].wifiStaNoSensingNode));
+                    serverApplications.Start(Seconds(0.0));
+                    serverApplications.Stop(Seconds(simulationTime + 1));
+
+                    for (uint32_t index = 0; index < allBss[i].wifiStaNoSensingNode.GetN(); ++index)
+                    {
+                        UdpClientHelper clientNs(serverInterfacesNoSensing.GetAddress(index), portNumber);
+                        clientNs.SetAttribute("MaxPackets", UintegerValue(4294967295U));
+                        clientNs.SetAttribute("Interval", TimeValue(Time("0.00001")));
+                        clientNs.SetAttribute("PacketSize", UintegerValue(payloadSize));
+                        clientApplications.Add(clientNs.Install(clientNodesNoSensing.Get(index)));
+                    }
+                    clientApplications.Start(Seconds(1.0));
+                    clientApplications.Stop(Seconds(simulationTime + 1));
+                }
             }
             else
             {
-                // TCP flow
+                // TCP flow — sensing STAs
                 std::cout << "TCP FLOW FOR BSS " << i + 1 << " WITH "
-                                        << allBss[i].wifiStaSensingNode.GetN() << " STAS" <<std::endl;
-                uint32_t portNumber_net2 = 50000;
-                Address localAddress(InetSocketAddress(Ipv4Address::GetAny(), portNumber_net2));
+                          << allBss[i].wifiStaSensingNode.GetN() << " SENSING STAS" <<std::endl;
+                uint32_t portNumber_tcp = 50000;
+                Address localAddress(InetSocketAddress(Ipv4Address::GetAny(), portNumber_tcp));
                 PacketSinkHelper packetSinkHelper("ns3::TcpSocketFactory", localAddress);
                 serverApplications = packetSinkHelper.Install(serverNodes.get());
                 serverApplications.Start(Seconds(0.0));
@@ -2496,20 +2529,44 @@ main(int argc, char* argv[])
                 for (uint32_t index = 0; index < allBss[i].wifiStaSensingNode.GetN(); ++index)
                 {
                     OnOffHelper onoff("ns3::TcpSocketFactory", Ipv4Address::GetAny());
-                    onoff.SetAttribute("OnTime",
-                                       StringValue("ns3::ConstantRandomVariable[Constant=1]"));
-                    onoff.SetAttribute("OffTime",
-                                       StringValue("ns3::ConstantRandomVariable[Constant=0]"));
+                    onoff.SetAttribute("OnTime", StringValue("ns3::ConstantRandomVariable[Constant=1]"));
+                    onoff.SetAttribute("OffTime", StringValue("ns3::ConstantRandomVariable[Constant=0]"));
                     onoff.SetAttribute("PacketSize", UintegerValue(payloadSize));
-                    onoff.SetAttribute(
-                        "DataRate",
-                        DataRateValue(1000000000 / allBss[i].wifiStaSensingNode.GetN())); // bit/s
+                    onoff.SetAttribute("DataRate",
+                        DataRateValue(1000000000 / allBss[i].wifiStaSensingNode.GetN()));
                     AddressValue remoteAddress(
-                        InetSocketAddress(serverInterfaces.GetAddress(index), portNumber_net2));
+                        InetSocketAddress(serverInterfaces.GetAddress(index), portNumber_tcp));
                     onoff.SetAttribute("Remote", remoteAddress);
                     clientApplications = onoff.Install(clientNodes.Get(index));
                     clientApplications.Start(Seconds(1.0));
                     clientApplications.Stop(Seconds(simulationTime + 1));
+                }
+
+                // TCP flow — non-sensing STAs
+                if (allBss[i].wifiStaNoSensingNode.GetN() > 0)
+                {
+                    std::cout << "TCP FLOW FOR BSS " << i + 1 << " WITH "
+                              << allBss[i].wifiStaNoSensingNode.GetN() << " NON-SENSING STAS" <<std::endl;
+                    PacketSinkHelper packetSinkHelperNs("ns3::TcpSocketFactory", localAddress);
+                    serverApplications.Add(packetSinkHelperNs.Install(allBss[i].wifiStaNoSensingNode));
+                    serverApplications.Start(Seconds(0.0));
+                    serverApplications.Stop(Seconds(simulationTime + 1));
+
+                    for (uint32_t index = 0; index < allBss[i].wifiStaNoSensingNode.GetN(); ++index)
+                    {
+                        OnOffHelper onoffNs("ns3::TcpSocketFactory", Ipv4Address::GetAny());
+                        onoffNs.SetAttribute("OnTime", StringValue("ns3::ConstantRandomVariable[Constant=1]"));
+                        onoffNs.SetAttribute("OffTime", StringValue("ns3::ConstantRandomVariable[Constant=0]"));
+                        onoffNs.SetAttribute("PacketSize", UintegerValue(payloadSize));
+                        onoffNs.SetAttribute("DataRate",
+                            DataRateValue(1000000000 / allBss[i].wifiStaNoSensingNode.GetN()));
+                        AddressValue remoteAddressNs(
+                            InetSocketAddress(serverInterfacesNoSensing.GetAddress(index), portNumber_tcp));
+                        onoffNs.SetAttribute("Remote", remoteAddressNs);
+                        clientApplications.Add(onoffNs.Install(clientNodesNoSensing.Get(index)));
+                        clientApplications.Start(Seconds(1.0));
+                        clientApplications.Stop(Seconds(simulationTime + 1));
+                    }
                 }
             }
         }
