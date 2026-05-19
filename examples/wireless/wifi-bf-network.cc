@@ -2023,7 +2023,7 @@ main(int argc, char* argv[])
                 Ptr<WifiNetDevice> AP_net_device =
                     DynamicCast<ns3::WifiNetDevice>(allBss[i].apDevice.Get(0));
                 auto apWifiMac = StaticCast<ApWifiMac>(AP_net_device->GetMac());
-                uint32_t totalStas = allBss[i].nStations_sensing + allBss[i].nStations_no_sensing;
+                uint32_t totalStas = allBss[i].staDevices.GetN();
                 for (uint32_t j = 0; j < totalStas; j++)
                 {
                     Ptr<WifiNetDevice> STA_net_device =
@@ -2054,12 +2054,13 @@ main(int argc, char* argv[])
             Ptr<WifiNetDevice> AP_net_device =
                 DynamicCast<ns3::WifiNetDevice>(allBss[i].apDevice.Get(0));
             auto apWifiMac = StaticCast<ApWifiMac>(AP_net_device->GetMac());
-            // Set BSSID for ALL STAs in this BSS (sensing + non-sensing).
-            // Non-sensing STAs are appended to staDevices after sensing STAs,
-            // so the total count is nStations_sensing + nStations_no_sensing.
-            // Without this, non-sensing STAs using ManualConnection=true never
-            // have their BSSID set and their association requests go unanswered.
-            uint32_t totalStas = allBss[i].nStations_sensing + allBss[i].nStations_no_sensing;
+            // Set BSSID for ALL STAs actually installed in this BSS.
+            // Use staDevices.GetN() instead of nStations_sensing + nStations_no_sensing:
+            // in scenarios where wifiStaNoSensingNode is never created (e.g.
+            // CIRCULAR_PLACEMENT with default nStations_net2=1), the
+            // nStations_no_sensing count exceeds the number of installed devices
+            // and staDevices.Get(j) would be out-of-bounds → SIGSEGV.
+            uint32_t totalStas = allBss[i].staDevices.GetN();
             for (uint32_t j = 0; j < totalStas; j++)
             {
                 Ptr<WifiNetDevice> STA_net_device =
