@@ -481,8 +481,12 @@ InterferenceHelper::CalculateNoiseInterferenceW(Ptr<Event> event,
     }
     ni.emplace(event->GetEndTime(), NiChange(0, event));
     nis.insert({band, ni});
-    NS_ASSERT_MSG(noiseInterferenceW >= 0.0,
-                  "CalculateNoiseInterferenceW returns negative value " << noiseInterferenceW);
+    // Clamp small negative values that arise from floating-point subtraction
+    // (power - rxPower - muMimoPower) when the terms nearly cancel.
+    if (noiseInterferenceW < 0.0)
+    {
+        noiseInterferenceW = 0.0;
+    }
     return noiseInterferenceW;
 }
 

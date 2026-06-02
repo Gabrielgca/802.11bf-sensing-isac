@@ -9,7 +9,7 @@
 # Common parameters
 # ---------------------------------------------------------------------------
 SIM_TIME=10
-SEEDS=(1 2 3 4 5 6 7 8 9 10)
+SEEDS=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)   # 20 seeds for better stats (adjust as needed)
 STATIONS=(1 2 3 4 5)
 DURATIONS=(10.24 51.2 92.16)   # cfpMaxDuration ms (parsed as TU by uint64_t: 10→10.24ms, 51→52.2ms, 92→94.2ms)
 INTERVALS=(102.4 307.2 512)    # sensingIntervalMs (ms)

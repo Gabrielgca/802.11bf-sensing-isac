@@ -188,6 +188,8 @@ class MultiUserScheduler : public Object
      * decide between chaining another phase and ending the round.
      */
     virtual bool HasMoreSensingPhases() { return false; }
+    /** @return the QosTxop that gained channel access (may be null if not yet set) */
+    Ptr<QosTxop> GetEdca() const { return m_edca; }
     bool m_nextSUSounding = 0; //!< Indicates next SU Sounding is still required>
     void SensingTimeout();
 

@@ -229,9 +229,50 @@ RrMultiUserScheduler::SelectTxFormat()
     {
         // 802.11bf sensing message exchange: the AP holds an ordered sequence
         // of SensingPhase values. The scheduler walks that sequence, dispatching
-        // one phase per SelectTxFormat() call while a CF-Poll MPDU is at the
-        // head of the queue. The sequence resets at the start of each CFP.
-        if (mpdu && mpdu->GetHeader().IsCfPoll())
+        // one phase per SelectTxFormat() call.
+        //
+        // The condition covers two cases:
+        //  1. CF-Poll is in the sensing Txop queue (normal start of a new round).
+        //  2. Queue is empty but we are mid-sequence (lastFmt is a sensing format).
+        //     This handles the intermediate StartFrameExchange call that fires after
+        //     TransmissionSucceeded→NotifyChannelReleased→RequestAccess when the
+        //     SENSING_TRIGGER is sent. Without case 2, the CF-Poll would be sent as
+        //     a plain SU frame (no BA agreement → scheduler not consulted), setting
+        //     lastTxFormat=SU_TX and causing the sequence to restart from POLLING.
+        const TxFormat lastFmtOuter = GetLastTxFormat(0U);
+        // midSensingSequence fires when the queue is empty, we are in CFP, and the last
+        // dispatched phase was POLLING. This covers the intermediate StartFrameExchange
+        // triggered by TransmissionSucceeded→RequestAccess after the SENSING_TRIGGER is
+        // sent: without it, the CF-Poll in the queue would be sent as a plain SU frame
+        // (no BA agreement → scheduler skipped), resetting lastTxFormat=SU_TX and causing
+        // the sequence to restart from POLLING instead of advancing to NDPA.
+        // Restricted to lastFmt==BF_POLL_DL_TX only: extending it to NDPA/TF_SOUNDING would
+        // advance m_sensingPhaseIdx past TF back to POLLING, making HasMoreSensingPhases()
+        // return true indefinitely and creating an infinite TF-sounding loop.
+        const bool midSensingSequence = !mpdu && m_apMac->IsInCfp() &&
+                                        (lastFmtOuter == BF_POLL_DL_TX);
+        // Suppress sensing dispatch from intermediate calls (CF-Poll in queue)
+        // while NDPA or TF sounding is active. These intermediate calls arise from
+        // TransmissionSucceeded→RequestAccess between sensing phases and would
+        // advance m_sensingPhaseIdx from TF(2) back to POLLING(0), making
+        // HasMoreSensingPhases() return true indefinitely. The scheduled
+        // StartFrameExchange events from lines 2766/2830 drive phase progression
+        // during sounding; intermediate calls are suppressed.
+        // Block intermediate calls (m_initialFrame==true, from TransmissionSucceeded
+        // →RequestAccess) during NDPA/TF sounding. These calls would prematurely
+        // advance m_sensingPhaseIdx from TF(2)→POLLING(0) and make
+        // HasMoreSensingPhases() return true indefinitely.
+        // Scheduled calls use initialFrame=false (from StartFrameExchangeWithEdca)
+        // and are allowed through to drive the phase sequence correctly.
+        const bool midSoundingActive = m_initialFrame && mpdu && m_apMac->IsInCfp() &&
+                                       (lastFmtOuter == BF_NDPA_SOUNDING_TX ||
+                                        lastFmtOuter == BF_NDPA_SOUNDING_TX_SU ||
+                                        lastFmtOuter == BF_TF_SOUNDING_TX);
+        if (midSoundingActive)
+        {
+            return NO_TX;
+        }
+        if ((mpdu && mpdu->GetHeader().IsCfPoll()) || midSensingSequence)
         {
             if (IsChannelSoundingEnabled())
             {

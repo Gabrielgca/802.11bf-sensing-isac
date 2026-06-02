@@ -269,20 +269,20 @@ HeFrameExchangeManager::StartFrameExchange(Ptr<QosTxop> edca, Time availableTime
 
     if (txFormat == MultiUserScheduler::SU_TX)
     {
-        // NS_LOG_INFO("HeFrameExchangeManager::StartFrameExchange line 235 : SU_TX");
-        // if (m_apMac && m_apMac->IsInCfp() && mpdu_test)
-        // {
-        //     if (mpdu_test->GetHeader().IsCts() && m_apMac->IsInCfp())
-        //     {
-        //         return FrameExchangeManager::StartTransmission(edca, m_phy->GetPhyBand());
-        //     }
-        // }
-
-        // if (m_staMac && m_staMac->IsInCfp() && m_staMac->IsAssociated() && mpdu && mpdu->GetHeader().IsAssocReq() &&
-        //     mpdu->GetHeader().IsReassocReq())
-        // {
-        //     return false;
-        // }
+        // Block any SU data TX during an active sensing CFP.  This path is
+        // taken when the scheduler was not consulted (e.g., no BA agreement
+        // for the destination STA), so the scheduler's per-frame CFP guard in
+        // SelectTxFormat does not fire.  Without this extra check a QoS data
+        // frame can slip through and cause a PHY-TX collision with the POLLING
+        // SENSING_TRIGGER that is scheduled at +SIFS from BF_POLL_DL_TX.
+        if (m_apMac && m_apMac->IsInCfp())
+        {
+            Ptr<WifiMpdu> peeked = edca->PeekNextMpdu(m_linkId);
+            if (peeked && peeked->GetHeader().IsQosData())
+            {
+                return false;
+            }
+        }
 
         return VhtFrameExchangeManager::StartFrameExchange(edca, availableTime, initialFrame);
     }
@@ -326,42 +326,35 @@ HeFrameExchangeManager::StartFrameExchange(Ptr<QosTxop> edca, Time availableTime
                 "The Multi-user Scheduler returned DL_MU_TX with empty psduMap, do not transmit");
             return false;
         }
-        m_txParams = std::move(m_muScheduler->GetPollingMuInfo(m_linkId).txParams);
-        m_psduMap = std::move(m_muScheduler->GetPollingMuInfo(m_linkId).psduMap);
-        SendPsduMap();
 
-        Time delay = m_txParams.m_txDuration;
-        WifiConstPsduMap psduMap;
-        for (const auto& psdu : m_psduMap)
-        {
-            psduMap.emplace(psdu.first, psdu.second);
-        }
-        delay = m_phy->CalculateTxDuration(psduMap, m_txParams.m_txVector, m_phy->GetPhyBand());
-
-        m_psduMap.clear();
+        // 802.11bf: the polling phase is defined as a single SENSING_TRIGGER frame
+        // (subtype = SENSING_POLLING). The preceding DL MU PPDU of QOSDATA_NULL_CFPOLL
+        // frames had no counterpart in the standard and added unnecessary overhead,
+        // so we skip SendPsduMap() and schedule the SENSING_TRIGGER immediately.
+        //
+        // Capture the sensing Txop here, before any other NotifyAccessGranted call
+        // from BE/other Txops can overwrite m_muScheduler->m_edca.
+        m_sensingTxop = edca;
         auto packet = Create<Packet>();
         packet->AddHeader(m_muScheduler->GetPollingMuInfo(m_linkId).triggerUlPoll);
         auto trigger =
             Create<WifiMpdu>(packet, m_muScheduler->GetPollingMuInfo(m_linkId).macHdrTriggerUlPoll);
-        trigger->GetHeader().SetQosTid(wifiAcList.at(m_edca->GetAccessCategory()).GetHighTid());
-        Ptr<WifiPsdu> psdu = Create<WifiPsdu>(trigger, true);
+        trigger->GetHeader().SetQosTid(wifiAcList.at(m_sensingTxop->GetAccessCategory()).GetHighTid());
         m_txParams = std::move(m_muScheduler->GetPollingMuInfo(m_linkId).txParamsTriggerUlPoll);
-        m_psduMap = std::move(WifiPsduMap{
+        // Use m_txParams.m_txVector (not the moved-from source) to avoid use-after-move.
+        m_psduMap = WifiPsduMap{
             {SU_STA_ID,
-             GetWifiPsdu(
-                 trigger,
-                 m_muScheduler->GetPollingMuInfo(m_linkId).txParamsTriggerUlPoll.m_txVector)}});
+             GetWifiPsdu(trigger, m_txParams.m_txVector)}};
 
-        delay += m_apMac->GetWifiPhy()->GetSifs();
-        Simulator::Schedule(delay,
+        // Save the EventId so BF_NDPA_SOUNDING_TX can cancel it if
+        // SensingRetransmission causes a second StartTransmission before
+        // this fires, which would otherwise produce a PHY-TX collision.
+        m_pendingPollingTrigger = Simulator::Schedule(m_phy->GetSifs(),
                             &HeFrameExchangeManager::SendPollTriggerIfInCfp,
                             this,
                             m_psduMap,
                             m_txParams);
 
-        // Simulator::Schedule(m_apMac->GetCfpMaxDuration(),
-        //                     &HeFrameExchangeManager::resetSensingTimeout,
-        //                     this);
         m_psduMap.clear();
         return true;
     }
@@ -369,6 +362,12 @@ HeFrameExchangeManager::StartFrameExchange(Ptr<QosTxop> edca, Time availableTime
     if (txFormat == MultiUserScheduler::BF_NDPA_SOUNDING_TX)
     {
         NS_LOG_INFO("HeFrameExchangeManager::StartFrameExchange line 255 : BF_NDPA_SOUNDING_TX");
+        // Cancel any pending POLLING SENSING_TRIGGER. When SensingRetransmission
+        // causes an immediate StartTransmission that advances directly to
+        // NDPA_SOUNDING, the previously scheduled SendPollTriggerIfInCfp callback
+        // (from BF_POLL_DL_TX) would fire into an already-running NDPA TX and
+        // crash the PHY. Cancelling it here prevents that collision.
+        m_pendingPollingTrigger.Cancel();
         m_lastCsTime = Simulator::Now();
         SendCsFramesFromBeamformer();
         m_NDPA_Sounding_mutex = 0;
@@ -716,6 +715,16 @@ HeFrameExchangeManager::TransmissionSucceeded()
     {
         NS_LOG_DEBUG(address << " did not respond, hence it is no longer protected");
         m_protectedStas.erase(address);
+    }
+
+    // 802.11bf: all sensing phases must execute within a single TXOP.
+    // NDPA and NDP are sent with WifiNoAck, so TransmissionSucceeded fires
+    // after each one — but the phase is not complete until STAs respond
+    // (handled in ReceiveMpdu). Returning early keeps m_edca alive and
+    // prevents the base class from releasing the channel mid-sequence.
+    if (m_apMac && m_apMac->IsInCfp() && IsSoundingInProgress())
+    {
+        return;
     }
 
     VhtFrameExchangeManager::TransmissionSucceeded();
@@ -1705,7 +1714,6 @@ HeFrameExchangeManager::TbPpduTimeout(WifiPsduMap* psduMap, std::size_t nSolicit
         if (m_apMac && m_apMac->IsInCfp())
         {
             ResetSensingTimeout();
-            // std::cout << "--- 1 Collision in polling phase ---" << std::endl;
             m_apMac->SensingRetransmission();
         }
         else
@@ -1720,7 +1728,6 @@ HeFrameExchangeManager::TbPpduTimeout(WifiPsduMap* psduMap, std::size_t nSolicit
         if (m_apMac && m_apMac->IsInCfp())
         {
             ResetSensingTimeout();
-            // std::cout << "--- 2 Collision in polling phase ---" << std::endl;
             m_apMac->SensingRetransmission();
         }
         else
@@ -2717,7 +2724,25 @@ HeFrameExchangeManager::ReceiveMpdu(Ptr<const WifiMpdu> mpdu,
                 NS_LOG_DEBUG("Continue the TXOP");
                 m_psduMap.clear();
                 m_edca->ResetCw(m_linkId);
-                TransmissionSucceeded();
+
+                // 802.11bf: if more sensing phases remain in this SME, stay in
+                // the same TXOP and chain the next phase directly. Calling
+                // TransmissionSucceeded() here would let QosFrameExchangeManager
+                // release the channel (TXOP limit = 0 Txop), clearing m_edca
+                // before the next phase (e.g. NDPA sounding) can start.
+                if (m_apMac && m_apMac->IsInCfp() && m_muScheduler->HasMoreSensingPhases())
+                {
+                    Simulator::Schedule(m_phy->GetSifs(),
+                                        &HeFrameExchangeManager::StartFrameExchangeWithEdca,
+                                        this,
+                                        m_sensingTxop,
+                                        m_apMac->GetCfpMaxDuration(),
+                                        false);
+                }
+                else
+                {
+                    TransmissionSucceeded();
+                }
             }
         }
 
@@ -2765,9 +2790,9 @@ HeFrameExchangeManager::ReceiveMpdu(Ptr<const WifiMpdu> mpdu,
                         m_muScheduler->GetPollingCandidatesSize() != 1)
                     {
                         Simulator::Schedule(m_phy->GetSifs(),
-                                            &HeFrameExchangeManager::StartFrameExchange,
+                                            &HeFrameExchangeManager::StartFrameExchangeWithEdca,
                                             this,
-                                            m_edca,
+                                            m_sensingTxop,
                                             m_apMac->GetCfpMaxDuration(),
                                             false);
                     }
@@ -2778,9 +2803,9 @@ HeFrameExchangeManager::ReceiveMpdu(Ptr<const WifiMpdu> mpdu,
                         // access (no EndTxNoAck / NotifyChannelReleasedForPCF)
                         // and chain the next phase after SIFS.
                         Simulator::Schedule(m_phy->GetSifs(),
-                                            &HeFrameExchangeManager::StartFrameExchange,
+                                            &HeFrameExchangeManager::StartFrameExchangeWithEdca,
                                             this,
-                                            m_edca,
+                                            m_sensingTxop,
                                             m_apMac->GetCfpMaxDuration(),
                                             false);
                     }
@@ -2842,9 +2867,9 @@ HeFrameExchangeManager::ReceiveMpdu(Ptr<const WifiMpdu> mpdu,
                         // the configured sensing sequence. Retain channel
                         // access and chain the next phase after SIFS.
                         Simulator::Schedule(m_phy->GetSifs(),
-                                            &HeFrameExchangeManager::StartFrameExchange,
+                                            &HeFrameExchangeManager::StartFrameExchangeWithEdca,
                                             this,
-                                            m_edca,
+                                            m_sensingTxop,
                                             m_apMac->GetCfpMaxDuration(),
                                             false);
                     }
@@ -2946,9 +2971,9 @@ HeFrameExchangeManager::ReceiveMpdu(Ptr<const WifiMpdu> mpdu,
                 {
                     m_NDPA_Sounding_mutex = 1;
                     Simulator::Schedule(m_phy->GetSifs(),
-                                        &HeFrameExchangeManager::StartFrameExchange,
+                                        &HeFrameExchangeManager::StartFrameExchangeWithEdca,
                                         this,
-                                        m_edca,
+                                        m_sensingTxop,
                                         m_apMac->GetCfpMaxDuration() - m_txTimer.GetDelayLeft(),
                                         false);
                 }
@@ -3384,6 +3409,19 @@ HeFrameExchangeManager::ReceiveMpdu(Ptr<const WifiMpdu> mpdu,
                      trigger.GetSensingSubtype() == SensingTriggerSubtype::SENSING_POLLING)
             {
                 NS_LOG_INFO("Received Sensing Polling TF from " << hdr.GetAddr2());
+
+                // The SENSING_POLLING trigger IS the sensing window signal, replacing
+                // the legacy CF-Poll.  Enter CFP now if the STA hasn't already, and
+                // reset the receive mutex (previously reset by the CF-Poll at line 3440).
+                if (m_staMac->GetPcfSupported() && !m_staMac->IsInCfp())
+                {
+                    m_staMac->StartCfPeriod();
+                    Simulator::Schedule(m_staMac->GetCfpMaxDuration(),
+                                        &StaWifiMac::StopCfPeriod,
+                                        m_staMac);
+                }
+                m_Polling_Receive_mutex = 1;
+
                 if (m_staMac->IsInCfp() && m_Polling_Receive_mutex)
                 {
                     Simulator::Schedule(m_phy->GetSifs(),
@@ -3820,6 +3858,38 @@ HeFrameExchangeManager::GetCsBeamformer() const
 }
 
 bool
+HeFrameExchangeManager::StartTransmission(Ptr<QosTxop> edca, Time txopDuration)
+{
+    // During an active sensing CFP, block any Txop other than the sensing Txop
+    // from acquiring the channel. Without this guard, a data Txop with backoff=0
+    // can win channel access during the SIFS gap between BF_POLL_DL_TX dispatch
+    // and the SENSING_TRIGGER transmission, overwriting m_edca and leaving it
+    // null when the next sensing frame calls GetPsduDurationId.
+    if (m_apMac && m_apMac->IsInCfp() && m_sensingTxop && edca != m_sensingTxop)
+    {
+        // Properly reset the Txop state so the ChannelAccessManager doesn't
+        // leave it stuck as GRANTED. GenerateBackoff (called inside) will
+        // re-queue the request with a new backoff. Because the sensing Txop
+        // has AIFSN=1 vs AIFSN≥2 for data Txops, the sensing Txop always wins
+        // the next contention — so the SIFS gap is filled correctly.
+        edca->NotifyChannelReleased(m_linkId);
+        return false;
+    }
+    return VhtFrameExchangeManager::StartTransmission(edca, txopDuration);
+}
+
+bool
+HeFrameExchangeManager::StartFrameExchangeWithEdca(Ptr<QosTxop> edca,
+                                                   Time availableTime,
+                                                   bool initialFrame)
+{
+    // Direct scheduled calls bypass StartTransmission (which normally sets
+    // m_edca). Set it here so SendPsduMap's NS_ASSERT(m_edca) passes.
+    m_edca = edca;
+    return StartFrameExchange(edca, availableTime, initialFrame);
+}
+
+bool
 HeFrameExchangeManager::IsSoundingInProgress() const
 {
     // NDPA sounding: NDPA was sent, AP is waiting for beamforming reports
@@ -3941,6 +4011,7 @@ HeFrameExchangeManager::ResetSensingTimeout()
         m_Polling_Receive_mutex = 0;
         m_NDPA_Sounding_mutex = 0;
         m_waitingForSensingNdp = false;
+        m_pendingPollingTrigger.Cancel();
         m_muScheduler->SensingTimeout();
         if (m_edca)
         {

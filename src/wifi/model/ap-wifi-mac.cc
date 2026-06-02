@@ -1525,14 +1525,21 @@ ApWifiMac::SendOneBeacon(uint8_t linkId)
     }
     packet->AddHeader(beacon);
 
-    // Beacons always use their own dedicated high-priority queue (m_beaconTxop,
-    // AIFSN=1, CW=0) and are re-scheduled at the standard BeaconInterval,
-    // regardless of whether PCF/sensing is active. The CFP cadence is driven
-    // independently by m_cfpEvent at SensingInterval (see TriggerCfPeriod()),
-    // so we no longer overload the beacon path to start CFPs.
-    m_beaconTxop->Queue(packet, hdr);
+    // Always reschedule the next beacon so the beacon cadence is preserved.
     link.beaconEvent =
         Simulator::Schedule(GetBeaconInterval(), &ApWifiMac::SendOneBeacon, this, linkId);
+
+    // Do not transmit the beacon while a sensing CFP is active.  The beacon
+    // Txop has AIFSN=1 (PIFS priority), so it wins channel access before the
+    // sensing AC_BK Txop and causes a PHY-TX collision when a POLLING trigger
+    // is already scheduled at SIFS.  Skip the transmission; the next beacon at
+    // BeaconInterval will fire outside the CFP (or will also be deferred until
+    // the CFP ends).
+    if (m_inCfp)
+    {
+        return;
+    }
+    m_beaconTxop->Queue(packet, hdr);
     // If a STA that does not support Short Slot Time associates,
     // the AP shall use long slot time beginning at the first Beacon
     // subsequent to the association of the long slot time STA.
@@ -2857,7 +2864,7 @@ ApWifiMac::StopCfPeriod()
     m_inCfp = false;
     // // Cancel any pending CFP timeout event and end the CFP immediately.
     EndSensingMeasurementExchange(0U);
-    m_cfpTimeoutEvent.Cancel();
+    // m_cfpTimeoutEvent.Cancel();
     
     std::cout << "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ AP Stops CF by : " << GetAddress() << " " << Simulator::Now() << " number of SMEs : " << m_SMECounter << std::endl;
     m_totalSMECounter += m_SMECounter;
@@ -2907,7 +2914,7 @@ ApWifiMac::StartSensingMeasurementExchange(uint8_t linkId)
     // Safety timeout: end the CFP even if no sensing response arrives.
 
     // std::cout << "GetCfpMaxDuration : " << GetCfpMaxDuration() << std::endl;
-    m_cfpTimeoutEvent.Cancel();
+    // m_cfpTimeoutEvent.Cancel();
     // Simulator::Schedule(GetCfpMaxDuration(), &ApWifiMac::EndSensingMeasurementExchange, this, 0U);
     m_SMECounter++;
     NS_LOG_DEBUG("CF-Poll queued for " << pollTarget);

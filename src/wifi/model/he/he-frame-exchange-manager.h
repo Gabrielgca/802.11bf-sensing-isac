@@ -78,6 +78,8 @@ class HeFrameExchangeManager : public VhtFrameExchangeManager
 
     uint16_t GetSupportedBaBufferSize() const override;
     bool StartFrameExchange(Ptr<QosTxop> edca, Time availableTime, bool initialFrame) override;
+    using VhtFrameExchangeManager::StartTransmission;
+    bool StartTransmission(Ptr<QosTxop> edca, Time txopDuration) override;
     void SetWifiMac(const Ptr<WifiMac> mac) override;
     void CalculateAcknowledgmentTime(WifiAcknowledgment* acknowledgment) const override;
     void CalculateProtectionTime(WifiProtection* protection) const override;
@@ -165,6 +167,12 @@ class HeFrameExchangeManager : public VhtFrameExchangeManager
      * from starting while a sounding exchange is still outstanding.
      */
     bool IsSoundingInProgress() const;
+    /**
+     * Set m_edca to the given sensing Txop then call StartFrameExchange.
+     * Used by direct Simulator::Schedule calls that bypass StartTransmission,
+     * which would normally set m_edca (required by SendPsduMap).
+     */
+    bool StartFrameExchangeWithEdca(Ptr<QosTxop> edca, Time availableTime, bool initialFrame);
     /**
      * Get the pointer of channel sounding beamformee
      * \return channel sounding beamformee pointer
@@ -480,6 +488,14 @@ class HeFrameExchangeManager : public VhtFrameExchangeManager
     */
     bool m_NDPA_Sounding_mutex = 0;
     bool m_Polling_Receive_mutex = 0;
+    /// The sensing Txop captured when BF_POLL_DL_TX starts.  Used in direct
+    /// StartFrameExchange schedules so that BE/other Txop NotifyAccessGranted
+    /// calls cannot overwrite m_muScheduler->m_edca between POLLING and NDPA.
+    Ptr<QosTxop> m_sensingTxop;
+    /// Pending Simulator::Schedule event for the POLLING SENSING_TRIGGER.
+    /// Saved in BF_POLL_DL_TX so it can be cancelled if BF_NDPA_SOUNDING_TX
+    /// is dispatched before it fires (race condition with SensingRetransmission).
+    EventId m_pendingPollingTrigger;
 
     void ReceiveSensingTrigger(const CtrlTriggerHeader& trigger, const WifiMacHeader& hdr); // Receive 802.11bf SR2SI Sensing Trigger Frame
     void SendTFSoundingFrame();   ///< Send 802.11bf SR2SI Sensing Trigger Frame

@@ -187,6 +187,13 @@ MultiUserScheduler::AccessReqTimeout()
         }
     }
 
+    // restart timer
+    if (m_accessReqInterval.IsStrictlyPositive())
+    {
+        m_accessReqTimer =
+            Simulator::Schedule(m_accessReqInterval, &MultiUserScheduler::AccessReqTimeout, this);
+    }
+
 }
 
 MultiUserScheduler::TxFormat
