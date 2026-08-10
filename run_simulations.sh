@@ -11,7 +11,7 @@
 SIM_TIME=10
 SEEDS=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)   # 20 seeds for better stats (adjust as needed)
 STATIONS=(1 2 3 4 5)
-DURATIONS=(10.24 51.2 92.16)   # cfpMaxDuration ms (parsed as TU by uint64_t: 10→10.24ms, 51→52.2ms, 92→94.2ms)
+DURATIONS=(10.24 51.2 92.16)   # sensingDurationMs ms (parsed as TU by uint64_t: 10→10.24ms, 51→52.2ms, 92→94.2ms)
 INTERVALS=(102.4 307.2 512)    # sensingIntervalMs (ms)
 
 COMMON="--simulationTime=${SIM_TIME} --nBss=1 --nBfBss=1 --sensingPriority=1 \
@@ -47,7 +47,7 @@ echo "============================================================"
 # =============================================================================
 # SCENARIO 1: Data + Sensing Integration
 #   Fixed : sensingPhaseSequence, sensingIntervalMs = 307.2 ms
-#   Varied: nStations (1-5), cfpMaxDuration (10.24/51.2/92.16 ms)
+#   Varied: nStations (1-5), sensingDurationMs (10.24/51.2/92.16 ms)
 # =============================================================================
 scenario1() {
     local csv="scenario1_data_sensing_integration.csv"
@@ -62,7 +62,7 @@ scenario1() {
         for STA in "${stations[@]}"; do
             for DUR in "${DURATIONS[@]}"; do
                 limit_jobs
-                echo "  [S1] seed=${SEED} nStations=${STA} cfpMaxDuration=${DUR}"
+                echo "  [S1] seed=${SEED} nStations=${STA} sensingDurationMs=${DUR}"
                 $NS3 run "wifi-bf-network \
                     ${COMMON} \
                     --seed=${SEED} \
@@ -81,7 +81,7 @@ scenario1() {
 # =============================================================================
 # SCENARIO 2: Multiple SMEs in a SAW
 #   Fixed : sensingIntervalMs = 307.2 ms, nStations = 2
-#   Varied: cfpMaxDuration (10.24/20.48/30.72/40.96/51.2/92.16/102.4 ms) + sensingPhaseSequence (3 sequences)
+#   Varied: sensingDurationMs (10.24/20.48/30.72/40.96/51.2/92.16/102.4 ms) + sensingPhaseSequence (3 sequences)
 # =============================================================================
 scenario2() {
     local csv="scenario2_multiple_smes_per_saw.csv"
@@ -92,7 +92,7 @@ scenario2() {
         "POLLING,TF_SOUNDING"
         "POLLING,NDPA_SOUNDING,TF_SOUNDING"
     )
-    local durations=(10.24 20.48 30.72 40.96 51.2 92.16 102.4)   # cfpMaxDuration ms values
+    local durations=(10.24 20.48 30.72 40.96 51.2 92.16 102.4)   # sensingDurationMs ms values
 
     echo "${CSV_HEADER}" > "${csv}"
     echo "[S2] started — writing to ${csv}"
@@ -101,7 +101,7 @@ scenario2() {
         for DUR in "${durations[@]}"; do
             for SEQ in "${seqs[@]}"; do
                 limit_jobs
-                echo "  [S2] seed=${SEED} cfpMaxDuration=${DUR} seq=${SEQ}"
+                echo "  [S2] seed=${SEED} sensingDurationMs=${DUR} seq=${SEQ}"
                 $NS3 run "wifi-bf-network \
                     ${COMMON} \
                     --seed=${SEED} \
@@ -120,14 +120,14 @@ scenario2() {
 # =============================================================================
 # SCENARIO 3: Throughput vs Sensing Trade-off
 #   Fixed : sensingIntervalMs = 307.2 ms, nStations = 2, sequence = full
-#   Varied: cfpMaxDuration (10.24/20.48/30.72/40.96/51.2/92.16/102.4 ms) + sensingPhaseSequence (3 sequences) + sensing-disabled baseline
+#   Varied: sensingDurationMs (10.24/20.48/30.72/40.96/51.2/92.16/102.4 ms) + sensingPhaseSequence (3 sequences) + sensing-disabled baseline
 # =============================================================================
 scenario3() {
     local csv="scenario3_throughput_vs_sensing.csv"
     local interval=307.2
     local stations=2
     local seq="POLLING,NDPA_SOUNDING,TF_SOUNDING"
-    local durations=(10.24 20.48 30.72 40.96 51.2 92.16 102.4)   # cfpMaxDuration ms values
+    local durations=(10.24 20.48 30.72 40.96 51.2 92.16 102.4)   # sensingDurationMs ms values
 
     echo "${CSV_HEADER}" > "${csv}"
     echo "[S3] started — writing to ${csv}"
@@ -149,7 +149,7 @@ scenario3() {
         # Sensing enabled with varying duration
         for DUR in "${durations[@]}"; do
             limit_jobs
-            echo "  [S3] seed=${SEED} cfpMaxDuration=${DUR} sensing=ENABLED"
+            echo "  [S3] seed=${SEED} sensingDurationMs=${DUR} sensing=ENABLED"
             $NS3 run "wifi-bf-network \
                 ${COMMON} \
                 --seed=${SEED} \
@@ -167,7 +167,7 @@ scenario3() {
 
 # =============================================================================
 # SCENARIO 4: Impact of Sensing Interval on Throughput
-#   Fixed : cfpMaxDuration = 51.2 ms, sequence = full
+#   Fixed : sensingDurationMs = 51.2 ms, sequence = full
 #   Varied: nStations (1-5), sensingIntervalMs (102.4/307.2/512 ms)
 # =============================================================================
 scenario4() {
