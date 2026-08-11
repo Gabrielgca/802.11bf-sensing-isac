@@ -86,7 +86,7 @@ The example scenario lives at [`examples/wireless/wifi-bf-network.cc`](examples/
 | Category | Parameters |
 |---|---|
 | Topology | `nBss`, `nBfBss`, `nAxBss`, `nStations`, `nStations_net2`, `scenario` (`CIRCULAR_PLACEMENT`, `PREDEFINED_LOCATIONS`, `INDOOR_OFFICE_ENVIRONMENT`, `RANDOM_PLACEMENT`, `INDOOR_OFFICE_3GPP`, `VOLUMETRIC_VIDEO_STREAMING`), `radius`, `residentialDensity` |
-| Sensing (802.11bf) | `enableWiFiSensing`, `sensingDurationMs`, `sensingIntervalMs`, `sensingIntervalType`, `sensingPhaseSequence`, `sensingPriority`, `ratioStasSensing`, `soundingtype` |
+| Sensing (802.11bf) | `enableWiFiSensing`, `sensingDurationMs`, `sensingIntervalMs`, `sensingIntervalType`, `sensingPhaseSequence`, `soundingtype` |
 | Channel sounding | `enableMuMIMO`, `maxNumDlMuMimoSta`, `channelSoundingInterval`, `ngSu`, `ngMu`, `codebookSizeSu`, `codebookSizeMu`, `nc`, `csMode` |
 | PHY / channel | `frequency`, `channelWidth`, `mcs`, `enableFading` (Nakagami small-scale fading) |
 | Data traffic | `udp`, `downlink`, `payloadSize`, `trafficType`, `enableFrameAggregation` |
@@ -117,7 +117,7 @@ By default it splits available CPUs evenly across the four scenarios (`JOBS_PER_
 
 Each row corresponds to one simulation run:
 
-`Throughput_Mbps`, `AvgExchangesPerWindow`, `TotalSensingExchanges`, `TotalSAWs`, `SensingInterval_ms`, `SensingDuration_ms`, `SensingSequence`, `NumStations`, `NumAPs`, `SensingEnabled`, `Seed`, `SimulationTime_s`, `RatioStasSensing`
+`Throughput_Mbps`, `AvgExchangesPerWindow`, `TotalSensingExchanges`, `TotalSAWs`, `SensingInterval_ms`, `SensingDuration_ms`, `SensingSequence`, `NumStations`, `NumAPs`, `SensingEnabled`, `Seed`, `SimulationTime_s`, `RatioStasSensing (not currently working)`
 
 ## Limitations
 
