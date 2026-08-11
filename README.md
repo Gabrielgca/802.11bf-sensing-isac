@@ -1,10 +1,10 @@
-# Coexistence of 802.11bf and 802.11ax
+# IEEE 802.11bf for ISAC and Flexible Sensing (ns-3)
 
 An ns-3 extension for **Integrated Sensing and Communication (ISAC)** and **flexible Trigger-Based Wi-Fi Sensing** in sub-7 GHz IEEE 802.11bf networks.
 
 This repository builds on the open-source baseline implementation of [Lumbantobing et al.](https://github.com/idolumbantobing/IEEE_802.11bf) (ns-3 3.40), which introduced the first MAC-layer 802.11bf Trigger-Based (TB) sensing procedure for ns-3, covering the Polling, NDPA Sounding, and Reporting phases with a single Sensing Measurement Exchange (SME) per Sensing Availability Window (SAW).
 
-This project extends that baseline to close several gaps left unaddressed by prior open-source work: ISAC, multiple SMEs per SAW, the SR2SI TF Sounding phase, and configurable sensing phase sequencing, broadening the range of scenarios that can be studied through simulation.
+This project extends that baseline to close some gaps left unaddressed by prior open-source work: ISAC, multiple SMEs per SAW, the SR2SI TF Sounding phase, and configurable sensing phase sequencing, broadening the range of scenarios that can be studied through simulation.
 
 ## Contributions
 
