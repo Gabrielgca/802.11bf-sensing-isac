@@ -1,2 +1,9 @@
 /build
 /cmake-cache
+**/*.pcap
+**/*.log
+**/*.csv
+**/*.png
+**/*.pdf
+**/*.txt
+**/*.out

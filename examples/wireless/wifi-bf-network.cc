@@ -48,9 +48,11 @@
 #include "ns3/wifi-module.h"
 #include "ns3/yans-wifi-helper.h"
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <random>
+#include <sstream>
 
 /* This is a simple example in order to show the frames exchanged in sensing transmission of
  * 802.11bf.
@@ -1284,6 +1286,122 @@ setNumberDevice(int scenario)
     }
 }
 
+/*******************************************/
+// Periodic per-station throughput tracing  //
+/*******************************************/
+struct ThroughputTraceEntry
+{
+    Ptr<Application> app;
+    bool isUdp;
+    std::string station;
+};
+
+struct ThroughputTracer
+{
+    std::vector<ThroughputTraceEntry> entries;
+    std::vector<uint64_t> lastBytes;
+    std::ofstream file;
+    Time interval;
+    uint32_t payloadSize;
+};
+
+void
+SampleThroughputTrace(ThroughputTracer* tracer)
+{
+    double now = Simulator::Now().GetSeconds();
+    for (std::size_t i = 0; i < tracer->entries.size(); ++i)
+    {
+        const ThroughputTraceEntry& entry = tracer->entries[i];
+        uint64_t bytes = entry.isUdp
+                              ? tracer->payloadSize *
+                                    DynamicCast<UdpServer>(entry.app)->GetReceived()
+                              : DynamicCast<PacketSink>(entry.app)->GetTotalRx();
+        uint64_t delta = bytes - tracer->lastBytes[i];
+        tracer->lastBytes[i] = bytes;
+        double mbps = (delta * 8) / (tracer->interval.GetSeconds() * 1e6);
+        tracer->file << mbps << "," << now << "," << entry.station << "\n";
+    }
+    // The tracer is intentionally leaked (see SetupThroughputTracer), so its ofstream
+    // destructor never runs — flush explicitly so samples survive to disk.
+    tracer->file.flush();
+    Simulator::Schedule(tracer->interval, &SampleThroughputTrace, tracer);
+}
+
+// no_sensing_* when sensing is off; otherwise the filename carries the sensing
+// interval/duration/sequence so different sensing configs never collide.
+std::string
+BuildThroughputTraceFilename(bool sensingEnabled,
+                              uint64_t sensingIntervalMs,
+                              uint64_t sensingDurationMs,
+                              std::string sensingPhaseSequence,
+                              int seed,
+                              uint32_t nStationsForRun)
+{
+    std::replace(sensingPhaseSequence.begin(), sensingPhaseSequence.end(), ',', '-');
+    std::ostringstream oss;
+    if (!sensingEnabled)
+    {
+        oss << "no_sensing_throughput_trace_sta" << nStationsForRun << "_seed" << seed << ".csv";
+    }
+    else
+    {
+        oss << "sensing_" << sensingIntervalMs << "ms-interval_" << sensingDurationMs
+            << "ms-duration_" << sensingPhaseSequence << "_sta" << nStationsForRun << "_seed"
+            << seed << "_throughput_trace.csv";
+    }
+    return oss.str();
+}
+
+// Registers per-station periodic throughput sampling (every throughputTraceIntervalMs) for the
+// UDP/TCP server applications in bfApps and axApps. The returned tracer is intentionally left
+// alive (leaked) since it must outlive Simulator::Run() and the process exits right after.
+ThroughputTracer*
+SetupThroughputTracer(bool enableThroughputTrace,
+                       double throughputTraceIntervalMs,
+                       bool sensingEnabled,
+                       uint64_t sensingIntervalMs,
+                       uint64_t sensingDurationMs,
+                       const std::string& sensingPhaseSequence,
+                       int seed,
+                       uint32_t nStationsForRun,
+                       uint32_t payloadSize,
+                       bool udp,
+                       const ApplicationContainer& bfApps,
+                       const ApplicationContainer& axApps)
+{
+    if (!enableThroughputTrace)
+    {
+        return nullptr;
+    }
+
+    auto* tracer = new ThroughputTracer();
+    tracer->interval = Seconds(throughputTraceIntervalMs / 1000.0);
+    tracer->payloadSize = payloadSize;
+
+    for (uint32_t i = 0; i < bfApps.GetN(); ++i)
+    {
+        tracer->entries.push_back({bfApps.Get(i), udp, "BF-STA" + std::to_string(i)});
+    }
+    for (uint32_t i = 0; i < axApps.GetN(); ++i)
+    {
+        tracer->entries.push_back({axApps.Get(i), udp, "AX-STA" + std::to_string(i)});
+    }
+    tracer->lastBytes.assign(tracer->entries.size(), 0);
+
+    std::string filename = BuildThroughputTraceFilename(sensingEnabled,
+                                                          sensingIntervalMs,
+                                                          sensingDurationMs,
+                                                          sensingPhaseSequence,
+                                                          seed,
+                                                          nStationsForRun);
+    tracer->file.open(filename);
+    tracer->file << "Throughput_Mbps,Timestamp_s,Station\n";
+    tracer->file.flush();
+
+    Simulator::Schedule(tracer->interval, &SampleThroughputTrace, tracer);
+    return tracer;
+}
+
 int
 main(int argc, char* argv[])
 {
@@ -1300,6 +1418,8 @@ main(int argc, char* argv[])
     bool enableFading = false; // Small-scale Nakagami fading for indoor environment
     bool enableCsvOutput = false;
     std::string csvFilename = "simulation_results.csv";
+    bool enableThroughputTrace = false; // Periodic per-station throughput CSV trace
+    double throughputTraceIntervalMs = 10.0; // Sampling interval for the throughput trace
     multipleBss = true;
     bool downlink{true};
     uint64_t sensingDurationMs = 50;   // milliseconds
@@ -1378,7 +1498,7 @@ main(int argc, char* argv[])
     // POLLING, NDPA_SOUNDING, TF_SOUNDING, REPORT. Phases may repeat.
     // Examples: "POLLING,TF_SOUNDING", "POLLING,NDPA_SOUNDING,REPORT",
     //           "POLLING,NDPA_SOUNDING,TF_SOUNDING,REPORT".
-    std::string sensingPhaseSequence = "POLLING,NDPA_SOUNDING,NDPA_SOUNDING,TF_SOUNDING,TF_SOUNDING";
+    std::string sensingPhaseSequence = "POLLING,NDPA_SOUNDING,TF_SOUNDING";
 
     /*******************************************/
     // MU-OFDMA Setup in Physical Layer        //
@@ -1465,6 +1585,13 @@ main(int argc, char* argv[])
     cmd.AddValue("enableCsvOutput", "Enable/disable CSV output of simulation results", enableCsvOutput);
     cmd.AddValue("csvFilename", "Output CSV filename (appends a row per run)", csvFilename);
     cmd.AddValue("enableFading", "Enable Nakagami small-scale fading (indoor multipath)", enableFading);
+    cmd.AddValue("enableThroughputTrace",
+                 "Enable/disable periodic per-station throughput CSV trace "
+                 "(no_sensing_* when sensing is off, sensing_<params>_* when it's on)",
+                 enableThroughputTrace);
+    cmd.AddValue("throughputTraceIntervalMs",
+                 "Sampling interval (ms) for the periodic throughput trace",
+                 throughputTraceIntervalMs);
     cmd.Parse(argc, argv);
 
     RngSeedManager::SetSeed(iseed);
@@ -2275,6 +2402,19 @@ main(int argc, char* argv[])
             }
         }
 
+        SetupThroughputTracer(enableThroughputTrace,
+                              throughputTraceIntervalMs,
+                              enableWiFiSensing,
+                              sensingIntervalMs,
+                              sensingDurationMs,
+                              sensingPhaseSequence,
+                              iseed,
+                              nStations,
+                              payloadSize,
+                              udp,
+                              serverApplications,
+                              serverApplications_net2);
+
         Config::Connect("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/$ns3::WifiPhy/PhyTxBegin",
                         MakeCallback(&TxCallback));
 
@@ -2682,6 +2822,19 @@ main(int argc, char* argv[])
             }
         }
 
+        SetupThroughputTracer(enableThroughputTrace,
+                              throughputTraceIntervalMs,
+                              enableWiFiSensing,
+                              sensingIntervalMs,
+                              sensingDurationMs,
+                              sensingPhaseSequence,
+                              iseed,
+                              nStations,
+                              payloadSize,
+                              udp,
+                              serverApplications,
+                              serverApplications_net2);
+
         Config::Connect("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/$ns3::WifiPhy/PhyTxBegin",
                         MakeCallback(&TxCallback));
 
@@ -2699,7 +2852,7 @@ main(int argc, char* argv[])
 
         if (enablePcap)
         {
-            if (multipleBss) 
+            if (multipleBss)
             {
                 // phy.EnablePcap("bf-wifi-network", allBss[nBfBss - 1].staDevices);
                 phy.EnablePcap("ax-wifi-network", allBss[nBfBss - 1 ].staDevices);
