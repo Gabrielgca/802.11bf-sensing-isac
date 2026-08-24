@@ -2752,7 +2752,7 @@ ApWifiMac::StartCfPeriod()   // was StartCfPeriod(void) — keep signature consi
     NS_LOG_FUNCTION(this);
     NS_ASSERT(GetPcfSupported());
 
-    std::cout << "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ AP Starts CF : " << GetAddress() << " " << Simulator::Now() << std::endl;
+    // std::cout << "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ AP Starts CF : " << GetAddress() << " " << Simulator::Now() << std::endl;
     // std::cout << "BEFORE StartCfPeriod IsInCfp() : " << IsInCfp() << std::endl;
     m_inCfp = true;
 
@@ -2790,11 +2790,11 @@ ApWifiMac::TriggerCfPeriod(uint8_t linkId)
         // A previous CFP has not finished; skip this round rather than stacking
         // overlapping CFPs on top of each other.
         NS_LOG_DEBUG("TriggerCfPeriod: previous CFP still active, skipping this round");
-        std::cout << "TriggerCfPeriod: skipping (still in CFP) at " << Simulator::Now() << std::endl;
+        // std::cout << "TriggerCfPeriod: skipping (still in CFP) at " << Simulator::Now() << std::endl;
         return;
     }
 
-    std::cout << "TriggerCfPeriod: starting CFP at " << Simulator::Now() << std::endl;
+    // std::cout << "TriggerCfPeriod: starting CFP at " << Simulator::Now() << std::endl;
 
     GetWifiPhy()->NotifyMonitorChannelAccess(GetAddress(), Simulator::Now(), false);
 
@@ -2866,7 +2866,7 @@ ApWifiMac::StopCfPeriod()
     EndSensingMeasurementExchange(0U);
     // m_cfpTimeoutEvent.Cancel();
     
-    std::cout << "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ AP Stops CF by : " << GetAddress() << " " << Simulator::Now() << " number of SMEs : " << m_SMECounter << std::endl;
+    // std::cout << "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ AP Stops CF by : " << GetAddress() << " " << Simulator::Now() << " number of SMEs : " << m_SMECounter << std::endl;
     m_totalSMECounter += m_SMECounter;
     m_sawCount++;
     m_SMECounter = 0;
@@ -2880,7 +2880,7 @@ ApWifiMac::StartSensingMeasurementExchange(uint8_t linkId)
     NS_LOG_FUNCTION(this);
     NS_ASSERT(GetPcfSupported() && !m_cfPollingList.empty());
     m_smeActive = true;
-    std::cout << "####################### Start Sensing Measurement Exchange by : " << GetAddress() << " " << Simulator::Now() << std::endl;
+    // std::cout << "####################### Start Sensing Measurement Exchange by : " << GetAddress() << " " << Simulator::Now() << std::endl;
     // Build and queue a QoS CF-Poll addressed to the current STA.
     Mac48Address pollTarget = *m_itCfPollingList;
 
@@ -2989,7 +2989,7 @@ ApWifiMac::EndSensingMeasurementExchange(uint8_t linkId)
 
 
     m_smeActive = false;
-    std::cout << "####################### End Sensing Measurement Exchange by : " << GetAddress() << " " << Simulator::Now() << std::endl;
+    // std::cout << "####################### End Sensing Measurement Exchange by : " << GetAddress() << " " << Simulator::Now() << std::endl;
     // Drain any leftover CF-Poll from the sensing queue.
     Ptr<WifiMpdu> lastMpdu =
         GetQosTxop(AcIndex(m_SensingPriority))->PeekNextMpdu(linkId);
@@ -3016,14 +3016,14 @@ ApWifiMac::EndSensingMeasurementExchange(uint8_t linkId)
         const Time minSmeBudget = MilliSeconds(1);
         if (remaining > minSmeBudget)
         {
-            std::cout << "Sensing round complete at " << Simulator::Now() << ", scheduling next round" << std::endl;
+            //  std::cout << "Sensing round complete at " << Simulator::Now() << ", scheduling next round" << std::endl;
             Simulator::ScheduleNow(&ApWifiMac::StartSensingMeasurementExchange, this, linkId);
         }
         else
         {
-            std::cout << "Sensing round complete at " << Simulator::Now()
-                      << ", skipping next round (only " << remaining.As(Time::US)
-                      << " left in CFP)" << std::endl;
+            // std::cout << "Sensing round complete at " << Simulator::Now()
+                    //   << ", skipping next round (only " << remaining.As(Time::US)
+                    //   << " left in CFP)" << std::endl;
         }
     }
     

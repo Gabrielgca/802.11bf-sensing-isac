@@ -163,7 +163,7 @@ void
 InfrastructureWifiMac::StartCfPeriod()
 {
     NS_LOG_FUNCTION(this);
-    std::cout << "Start CF period for " << GetAddress() << " at " << Simulator::Now() << std::endl;
+    // std::cout << "Start CF period for " << GetAddress() << " at " << Simulator::Now() << std::endl;
     m_cfpStart = Simulator::Now();
     m_cfpForeshortening = NanoSeconds(0);
     // Simulator::Schedule(GetCfpMaxDuration(), &InfrastructureWifiMac::StopCfPeriod, this);
@@ -173,7 +173,7 @@ void
 InfrastructureWifiMac::StopCfPeriod()
 {
     NS_LOG_FUNCTION(this);
-    std::cout << "Stop CF period for " << GetAddress() << " at " << Simulator::Now() << std::endl;
+    // std::cout << "Stop CF period for " << GetAddress() << " at " << Simulator::Now() << std::endl;
     m_cfpStart = NanoSeconds(0);
     m_cfpForeshortening = NanoSeconds(0);
 }

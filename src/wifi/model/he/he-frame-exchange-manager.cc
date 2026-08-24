@@ -397,7 +397,7 @@ HeFrameExchangeManager::StartFrameExchange(Ptr<QosTxop> edca, Time availableTime
     if (txFormat == MultiUserScheduler::BF_TF_SOUNDING_TX)
     {
         NS_LOG_INFO("HeFrameExchangeManager::StartFrameExchange: BF_TF_SOUNDING_TX");
-        std::cout << "HeFrameExchangeManager::StartFrameExchange: BF_TF_SOUNDING_TX" << std::endl;
+        // std::cout << "HeFrameExchangeManager::StartFrameExchange: BF_TF_SOUNDING_TX" << std::endl;
         m_lastCsTime = Simulator::Now();
         SendTFSoundingFrame();
         m_psduMap.clear();
@@ -969,7 +969,7 @@ HeFrameExchangeManager::SendPsduMap()
             responseTxVector = &txVector;
             timerType = WifiTxTimer::WAIT_BF_REPORT_AFTER_BFRP_TF;
             m_waitingForSensingNdp = true;
-            std::cout << "SendPsduMap Set waiting for sensing NDP to true at " << Simulator::Now() << std::endl;
+            // std::cout << "SendPsduMap Set waiting for sensing NDP to true at " << Simulator::Now() << std::endl;
         }
         // SENSING_POLLING (subtype=0): STAs respond with CTS-to-self in a TB PPDU.
         // Falls through to the BSRP-like path below (WAIT_QOS_NULL_AFTER_BSRP_TF).
@@ -2849,7 +2849,7 @@ HeFrameExchangeManager::ReceiveMpdu(Ptr<const WifiMpdu> mpdu,
                       staId) != m_csBeamformer->GetCsStaIdList().end())
         {
             // Record this STA's NDP as received by inserting a placeholder channel info entry
-            std::cout << "ReceiveMpdu RecordSensingNdpReceived for station " << staId << std::endl;
+            // std::cout << "ReceiveMpdu RecordSensingNdpReceived for station " << staId << std::endl;
             m_csBeamformer->RecordSensingNdpReceived(staId);
 
             std::list<uint16_t> remaining = m_csBeamformer->CheckAllChannelInfoReceived();
@@ -3396,7 +3396,7 @@ HeFrameExchangeManager::ReceiveMpdu(Ptr<const WifiMpdu> mpdu,
                      trigger.GetSensingSubtype() == SensingTriggerSubtype::SR2SI_SOUNDING)
             {
                 NS_LOG_INFO("Received SR2SI Sensing Trigger Frame from " << hdr.GetAddr2());
-                std::cout << "Received SR2SI Sensing Trigger Frame from " << hdr.GetAddr2() << std::endl;
+                // std::cout << "Received SR2SI Sensing Trigger Frame from " << hdr.GetAddr2() << std::endl;
                 Simulator::Schedule(m_phy->GetSifs(),
                                     &HeFrameExchangeManager::ReceiveSensingTrigger,
                                     this,
