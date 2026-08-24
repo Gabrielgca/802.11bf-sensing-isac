@@ -1,10 +1,10 @@
-# Coexistence of 802.11bf and 802.11ax
+# IEEE 802.11bf for ISAC and Flexible Sensing (ns-3)
 
 An ns-3 extension for **Integrated Sensing and Communication (ISAC)** and **flexible Trigger-Based Wi-Fi Sensing** in sub-7 GHz IEEE 802.11bf networks.
 
 This repository builds on the open-source baseline implementation of [Lumbantobing et al.](https://github.com/idolumbantobing/IEEE_802.11bf) (ns-3 3.40), which introduced the first MAC-layer 802.11bf Trigger-Based (TB) sensing procedure for ns-3, covering the Polling, NDPA Sounding, and Reporting phases with a single Sensing Measurement Exchange (SME) per Sensing Availability Window (SAW).
 
-This project extends that baseline to close several gaps left unaddressed by prior open-source work: ISAC, multiple SMEs per SAW, the SR2SI TF Sounding phase, and configurable sensing phase sequencing, broadening the range of scenarios that can be studied through simulation.
+This project extends that baseline to close some gaps left unaddressed by prior open-source work: ISAC, multiple SMEs per SAW, the SR2SI TF Sounding phase, and configurable sensing phase sequencing, broadening the range of scenarios that can be studied through simulation.
 
 ## Contributions
 
@@ -12,8 +12,6 @@ This project extends that baseline to close several gaps left unaddressed by pri
 - **Multiple SMEs per SAW** - Reinterprets the sensing window as a true recurring SAW capable of completing several Sensing Measurement Exchanges, instead of one fixed-duration exchange per window.
 - **SR2SI TF Sounding phase** - Implements the Trigger Frame Sounding phase (Sensing Responder → Sensing Initiator variant), enabling AP-side CSI collection, which the baseline did not support.
 - **Dynamic sensing phase sequence** - Replaces the baseline's static phase order with a configurable, user-defined sequence (`SensingPhaseSequence`), enabling STA-side, AP-side, or combined CSI collection strategies within a single SAW.
-
-Alongside these, the implementation includes three **standard compliance refinements** over the baseline: SAW duration is modeled as a recurring window rather than a single-SME cap, the Polling phase uses the standard Sensing Trigger frame (instead of a BSRP trigger), and an auxiliary per-SME `QOS_CF_POLL` frame was eliminated in favor of implicit SAW-start detection on the first Polling frame.
 
 > For the full protocol background, implementation details, and evaluation results behind these contributions, see the accompanying paper (citation below).
 
@@ -51,21 +49,9 @@ Accepted tokens are `POLLING`, `NDPA_SOUNDING`, and `TF_SOUNDING`; phases may re
 
 ## Getting Started
 
-### Requirements
-
-- ns-3 **3.40**
-- A C++ toolchain supported by ns-3 (see [ns-3 prerequisites](https://www.nsnam.org/docs/release/3.40/tutorial/html/getting-started.html))
-
-### Build
-
-```bash
-./ns3 configure --build-profile=debug --enable-examples --enable-tests --disable-werror
-./ns3 build
-```
-
 ## Running Simulations
 
-The example scenario lives at [`examples/wireless/wifi-bf-network.cc`](examples/wireless/wifi-bf-network.cc). It sets up a BSS with a configurable AP/STA topology, drives both sensing (802.11bf) and data (802.11ax) traffic, and reports throughput and sensing KPIs.
+The example scenario lives at [`examples/wireless/wifi-bf-network.cc`](examples/wireless/wifi-bf-network.cc). It sets up BSSs with a configurable AP/STA topology, drives both sensing (802.11bf) and data (802.11ax) traffic, and reports throughput and sensing KPIs.
 
 ### Single run example
 
@@ -129,7 +115,7 @@ Each row corresponds to one simulation run:
 ## Future Work
 
 - Implement the sensing session establishment phase.
-- Add support for non-sensing STAs coexisting with sensing STAs in the same IEEE 802.11bf network.
+- Add support for non-sensing STAs coexisting with sensing STAs in the same IEEE 802.11bf network (`RatioStasSensing`).
 - Integrate realistic CSI/channel models to enable actual sensing computation.
 
 ## Citation
