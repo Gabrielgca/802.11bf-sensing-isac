@@ -123,7 +123,23 @@ Each row corresponds to one simulation run:
 If you use this module in your research, please cite:
 
 ```bibtex
-
+@inproceedings{10.1145/3837358.3837373,
+author = {de Castro Araujo, Gabriel and Carvalho, Marcelo},
+title = {An ns-3 Extension for ISAC and Flexible Trigger-Based Wi-Fi Sensing in Sub-7GHz IEEE 802.11bf Networks},
+year = {2026},
+isbn = {9798400727405},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/3837358.3837373},
+doi = {10.1145/3837358.3837373},
+abstract = {The IEEE 802.11bf amendment was recently introduced to support Wi-Fi sensing in future Wi-Fi networks, which leverages information such as the channel state information (CSI) to realize a number of sensing tasks, such as motion detection, gesture recognition, and pose estimation. Prior open-source ns-3 implementations of the 802.11bf MAC-layer protocol have established a foundation for simulation-based research, focusing on the core Trigger-Based sensing procedure. However, several capabilities defined by the standard remained unexplored, most notably Integrated Sensing and Communication (ISAC), multiple Sensing Measurement Exchanges (SMEs) per Sensing Availability Window (SAW), the SR2SI variant of the Trigger Frame (TF) Sounding phase, and flexible sensing phase sequencing supporting STA-side, AP-side, or combined CSI collection. In this paper, we present an extended ns-3 implementation of the IEEE 802.11bf Trigger-Based sensing protocol for sub-7&nbsp;GHz bands that addresses these gaps. Through ns-3 simulations, we show that frequent sensing windows have a stronger impact on data communication than longer individual sensing durations, and that AP-side-only sensing can achieve more than double the SME sampling rate of a combined AP and station-side sequence.},
+booktitle = {Proceedings of the 2026 International Conference on Ns-3},
+pages = {117–125},
+numpages = {9},
+keywords = {Wi-Fi sensing, ISAC, IEEE 802.11bf, MAC, ns-3},
+location = {Naples, Italy},
+series = {ICNS3 2026}
+}
 ```
 
 ## License
